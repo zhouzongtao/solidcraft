@@ -6,6 +6,7 @@
 use std::sync::{Mutex, RwLock};
 
 use crate::cmd::CommandSpec;
+pub use crate::cmd::extension_feature::add_extension_feature;
 use crate::{EngineError, Result};
 
 /// The commands extensions registered, in registration order.

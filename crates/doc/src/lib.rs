@@ -20,6 +20,7 @@ pub mod display_quality;
 mod document;
 mod eval;
 pub mod expr;
+pub mod extension;
 pub mod face_anchor;
 mod feature_geometry;
 mod feature_refs;
@@ -85,6 +86,8 @@ pub enum DocError {
 
 pub type Result<T> = std::result::Result<T, DocError>;
 
+#[cfg(test)]
+mod extension_tests;
 #[cfg(test)]
 mod feature_walk_tests;
 #[cfg(test)]

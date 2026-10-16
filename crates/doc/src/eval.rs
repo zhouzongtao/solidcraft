@@ -5365,6 +5365,7 @@ fn eval_feature(doc: &Document, vals: &BTreeMap<String, Value>, f: &Feature, st:
             *target = result;
             Ok(())
         }
+        FeatureKind::Extension { .. } => crate::extension::evaluate(vals, f, st),
         FeatureKind::MeshImport { meshes, .. } => {
             for (k, (name, b)) in mesh_bodies(meshes)?.into_iter().enumerate() {
                 let name = copy_body_name(st, f, k, &name);

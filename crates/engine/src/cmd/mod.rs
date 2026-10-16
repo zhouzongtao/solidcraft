@@ -31,6 +31,7 @@ mod construct;
 mod delete;
 mod diagnostics;
 mod edit;
+pub mod extension_feature;
 mod face;
 mod features;
 mod features_more;

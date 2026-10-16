@@ -1563,6 +1563,20 @@ pub enum FeatureKind {
         file: String,
         meshes: Vec<MeshData>,
     },
+    /// A feature of an extension (`ext`, e.g. a bridge library) of kind `kind`, made by the
+    /// generator the extension registered for it (`extension`).
+    Extension {
+        ext: String,
+        kind: String,
+        #[serde(default)]
+        version: u64,
+        /// Numeric inputs (expressions), in the extension's order.
+        #[serde(default)]
+        inputs: crate::extension::ExtInputs,
+        /// The other parameters, as the extension reads them.
+        #[serde(default)]
+        params: serde_json::Value,
+    },
 }
 
 /// What fills the corner where three blended edges meet.
@@ -2139,6 +2153,7 @@ impl FeatureKind {
             FeatureKind::Import { .. } => "BaseFeature",
             FeatureKind::MeshImport { .. } => "MeshFeature",
             FeatureKind::MeshConvert { .. } => "MeshConvertFeature",
+            FeatureKind::Extension { .. } => "ExtensionFeature",
         }
     }
     /// Default name prefix (`Extrude` → `Extrude1`).
@@ -2218,6 +2233,7 @@ impl FeatureKind {
             FeatureKind::SurfaceUntrim { .. } => "Untrim",
             FeatureKind::Import { .. } => "Import",
             FeatureKind::MeshImport { .. } => "Mesh",
+            FeatureKind::Extension { .. } => "Extension",
             FeatureKind::MeshConvert { .. } => "ConvertMesh",
         }
     }
