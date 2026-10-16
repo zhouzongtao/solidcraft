@@ -1723,6 +1723,20 @@ pub fn loft(sections: &[(Plane, Loop2)]) -> Result<Body> {
     })
 }
 
+/// Ruled loft through two or more planar sections: a ruled face between each two neighbouring
+/// sections, never a smooth surface across them, so a member that changes section at stations
+/// (a web thickened towards a beam's ends) is straight between them. Its history names each side
+/// face by the profile segments it runs between (`FaceOrigin::Profile`, numbered through the
+/// sections in the order given) and its caps by the first (`Cap { end: false }`) and last section.
+pub fn loft_ruled(sections: &[(Plane, Loop2)]) -> Result<Body> {
+    let (wires, edge_sources, reversed) = loft_wires(sections)?;
+    guard("loft", || {
+        let sides = ruled_loft_faces(&wires, &edge_sources)?;
+        let (Some(first), Some(last)) = (wires.first(), wires.last()) else { return Err(KernelError::Failed("loft".into())) };
+        cap_and_close(sides, std::slice::from_ref(first), std::slice::from_ref(last), reversed)
+    })
+}
+
 /// The wires of a loft's closed sections, matched: oriented alike, resampled to the same
 /// segment count and turned to start alike; with the profile segments under each wire edge, and
 /// whether the sections were turned round into the canonical order.

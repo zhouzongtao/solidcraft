@@ -2908,3 +2908,21 @@ fn loft_caps_a_skewed_section_far_from_the_origin() {
     let b = loft(&[(plane(40.0), lp.clone()), (plane(29960.0), lp)]).unwrap();
     assert!(b.validity().is_empty(), "{:?}", b.validity());
 }
+
+/// A ruled loft through three sections is two frustums, straight between the stations (a smooth
+/// loft would bulge between them): 4 + 4 sides and 2 caps, and the frustums' volume.
+#[test]
+fn ruled_loft_is_straight_between_stations() {
+    let square = |h: f64| Loop2::polygon(&[Vec2::new(-h, -h), Vec2::new(h, -h), Vec2::new(h, h), Vec2::new(-h, h)]);
+    let at = |z: f64| Plane::new(Vec3::new(0.0, 0.0, z), Vec3::X, Vec3::Y).unwrap();
+    let b = loft_ruled(&[(at(0.0), square(5.0)), (at(10.0), square(10.0)), (at(20.0), square(5.0))]).unwrap();
+    assert!(b.validity().is_empty(), "{:?}", b.validity());
+    assert_eq!(b.face_count(), 10);
+    // Each frustum: h/3 (A1 + A2 + sqrt(A1 A2)) with A1 = 100, A2 = 400.
+    let want = 2.0 * 10.0 / 3.0 * (100.0 + 400.0 + 200.0);
+    let m = crate::measure(&b).unwrap();
+    assert!(rel(m.volume, want) < 1e-6, "{} vs {want}", m.volume);
+    let h = b.history().unwrap();
+    let caps = h.faces.iter().filter(|f| matches!(f.origins.as_slice(), [crate::history::FaceOrigin::Cap { .. }])).count();
+    assert_eq!(caps, 2);
+}
