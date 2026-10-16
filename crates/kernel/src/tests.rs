@@ -2879,3 +2879,32 @@ fn loft_pairs_the_vertices_of_matching_non_convex_sections() {
     assert!(rel(m.volume, want) < 5e-3, "{} vs {want}", m.volume);
     assert!(m.centroid.x.abs() < 0.05, "centre of mass x {}", m.centroid.x);
 }
+
+/// A ruled loft between two skewed planes closes its caps for a section with many vertices far
+/// from the origin (a T-beam end 11 m across a bridge, 30 m along it, skewed 30°): truck's plane
+/// fit refused them as "not on one plane".
+#[test]
+fn loft_caps_a_skewed_section_far_from_the_origin() {
+    let k = 30f64.to_radians().tan();
+    let n = (1.0 + k * k).sqrt();
+    let pts = [
+        (12000.0, -240.0),
+        (9945.0, -198.9),
+        (9945.0, -398.9),
+        (10120.0, -402.4),
+        (10720.0, -464.4),
+        (10720.0, -1816.4),
+        (10520.0, -2016.4),
+        (10520.0, -2216.4),
+        (11120.0, -2216.4),
+        (11120.0, -2016.4),
+        (10920.0, -1816.4),
+        (10920.0, -468.4),
+        (11520.0, -430.4),
+        (12000.0, -440.0),
+    ];
+    let lp = Loop2::polygon(&pts.iter().map(|&(y, z)| Vec2::new(y * n, z)).collect::<Vec<_>>());
+    let plane = |x: f64| Plane::new(Vec3::new(x, 0.0, 0.0), Vec3::new(k / n, 1.0 / n, 0.0), Vec3::Z).unwrap();
+    let b = loft(&[(plane(40.0), lp.clone()), (plane(29960.0), lp)]).unwrap();
+    assert!(b.validity().is_empty(), "{:?}", b.validity());
+}

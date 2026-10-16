@@ -1651,15 +1651,31 @@ fn revolve_touching_axis(plane: &Plane, numbered: &NumberedLoop, axis_origin: Ve
     })
 }
 
+/// A planar face on `wires`, as `builder::try_attach_plane` makes it, fitted near the origin.
+/// Truck's fit measures the points from their sum rather than their mean, so it loses the plane
+/// of a section with many vertices far from the origin (a skewed beam end of a bridge 30 m
+/// long and 12 m wide is refused as "not on one plane"). The wires are moved so their
+/// vertices' centroid is at the origin, the plane is fitted there and moved back.
+fn attach_plane(wires: &[mt::Wire]) -> std::result::Result<mt::Face, String> {
+    let pts: Vec<Vec3> = wires.iter().flat_map(|w| w.edge_iter().map(|e| from_p3(e.front().point()))).collect();
+    if pts.is_empty() {
+        return Err("no points".into());
+    }
+    let c = pts.iter().fold(Vec3::ZERO, |a, q| a + *q) * (1.0 / pts.len() as f64);
+    let moved: Vec<mt::Wire> = wires.iter().map(|w| builder::translated(w, v3(c * -1.0))).collect();
+    let fitted = builder::try_attach_plane(&moved).map_err(|e| e.to_string())?;
+    let back = builder::translated(&fitted, v3(c));
+    mt::Face::try_new(wires.to_vec(), back.surface()).map_err(|e| e.to_string())
+}
+
 /// Close a ruled shell (side faces between matching wires, with their provenance as built)
 /// with planar caps into a body, whose history is the sides' and the caps': the profile at
 /// `w0` is the start cap and at `w1` the end cap (the other way round when `from_end`).
 pub(crate) fn cap_and_close(sides: Vec<Side>, w0: &[mt::Wire], w1: &[mt::Wire], from_end: bool) -> Result<Body> {
     let (mut faces, prov): (Vec<mt::Face>, Vec<Option<FaceProv>>) = sides.into_iter().unzip();
     let history: Option<Vec<FaceProv>> = prov.into_iter().chain([Some(record::cap(from_end)), Some(record::cap(!from_end))]).collect();
-    let bottom =
-        builder::try_attach_plane(&w0.iter().map(|w| w.inverse()).collect::<Vec<_>>()).map_err(|e| KernelError::Failed(format!("cap: {e}")))?;
-    let top = builder::try_attach_plane(w1).map_err(|e| KernelError::Failed(format!("cap: {e}")))?;
+    let bottom = attach_plane(&w0.iter().map(|w| w.inverse()).collect::<Vec<_>>()).map_err(|e| KernelError::Failed(format!("cap: {e}")))?;
+    let top = attach_plane(w1).map_err(|e| KernelError::Failed(format!("cap: {e}")))?;
     let mut last = String::new();
     for (b, t) in [(bottom.clone(), top.clone()), (bottom.inverse(), top.inverse()), (bottom.clone(), top.inverse()), (bottom.inverse(), top)] {
         let mut all = std::mem::take(&mut faces);
