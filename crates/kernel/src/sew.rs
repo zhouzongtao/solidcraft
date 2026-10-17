@@ -1,7 +1,8 @@
 //! Sewing a solid from face descriptions: each face is its boundary loops (lines, circular
-//! arcs and Bézier chains, counter-clockwise about the outward normal; holes clockwise)
-//! and its surface (planar, revolved from a line, extruded from an arc, or ruled between two
-//! Bézier chains). Vertices and edges at the same places are shared, so the faces close into
+//! arcs, conic arcs and Bézier chains, counter-clockwise about the outward normal; holes
+//! clockwise) and its surface (planar, revolved from a line, extruded from an arc, or ruled
+//! between two Bézier chains, or between two edges that are lines or conic arcs). Vertices and
+//! edges at the same places are shared, so the faces close into
 //! one shell without booleans — for solids whose faces are known exactly, such as folded
 //! sheet metal.
 
@@ -41,12 +42,20 @@ pub enum EdgeSpec {
         degree: usize,
         ctrl: Arc<[Vec3]>,
     },
+    /// A conic arc (an ellipse's on a skewed section plane): the rational quadratic from `a` to
+    /// `b` about `apex`, weight `w` (end weights 1).
+    Conic {
+        a: Vec3,
+        apex: Vec3,
+        b: Vec3,
+        w: f64,
+    },
 }
 
 impl EdgeSpec {
     fn ends(&self) -> (Vec3, Vec3) {
         match self {
-            EdgeSpec::Line { a, b } | EdgeSpec::Arc { a, b, .. } => (*a, *b),
+            EdgeSpec::Line { a, b } | EdgeSpec::Arc { a, b, .. } | EdgeSpec::Conic { a, b, .. } => (*a, *b),
             EdgeSpec::Chain { ctrl, .. } => (ctrl.first().copied().unwrap_or(Vec3::ZERO), ctrl.last().copied().unwrap_or(Vec3::ZERO)),
         }
     }
@@ -65,6 +74,7 @@ impl EdgeSpec {
                 let first = *ctrl.first()?;
                 ctrl.iter().skip(1).map(|p| *p - first).find(|d| d.len() > 1e-12)?
             }
+            EdgeSpec::Conic { a, apex, .. } => *apex - *a,
         };
         d.normalized()
     }
@@ -75,6 +85,7 @@ impl EdgeSpec {
             EdgeSpec::Line { a, b } => EdgeSpec::Line { a: *b, b: *a },
             EdgeSpec::Arc { a, b, mid } => EdgeSpec::Arc { a: *b, b: *a, mid: *mid },
             EdgeSpec::Chain { degree, ctrl } => EdgeSpec::Chain { degree: *degree, ctrl: ctrl.iter().rev().copied().collect() },
+            EdgeSpec::Conic { a, apex, b, w } => EdgeSpec::Conic { a: *b, apex: *apex, b: *a, w: *w },
         }
     }
 
@@ -96,6 +107,8 @@ impl EdgeSpec {
                 });
                 Some(key(sum * (1.0 / n.max(1) as f64)))
             }
+            // Its point halfway (the same whichever way it runs).
+            EdgeSpec::Conic { a, apex, b, w } => Some(key((*a + *apex * (2.0 * w) + *b) * (1.0 / (2.0 + 2.0 * w)))),
         }
     }
 
@@ -110,6 +123,7 @@ impl EdgeSpec {
                     && (ctrl.len() - 1) % degree == 0
                     && ctrl.iter().all(|p| p.is_finite())
             }
+            EdgeSpec::Conic { a, apex, b, w } => a.is_finite() && apex.is_finite() && b.is_finite() && w.is_finite() && *w > 1e-9 && *w < 1e6,
         }
     }
 }
@@ -193,6 +207,7 @@ fn welded(faces: &[FaceSpec]) -> Option<Vec<FaceSpec>> {
     let edge = |e: &EdgeSpec| match e {
         EdgeSpec::Line { a, b } => EdgeSpec::Line { a: weld(*a), b: weld(*b) },
         EdgeSpec::Arc { a, b, mid } => EdgeSpec::Arc { a: weld(*a), b: weld(*b), mid: *mid },
+        EdgeSpec::Conic { a, apex, b, w } => EdgeSpec::Conic { a: weld(*a), apex: *apex, b: weld(*b), w: *w },
         EdgeSpec::Chain { degree, ctrl } => {
             let mut ctrl = ctrl.to_vec();
             let n = ctrl.len();
@@ -245,6 +260,11 @@ impl Cache {
         let made = match e {
             EdgeSpec::Line { .. } => builder::line(&va, &vb),
             EdgeSpec::Arc { mid, .. } => arc_edge(&va, &vb, *mid),
+            EdgeSpec::Conic { .. } => {
+                let curve = self.quadratic(e)?;
+                mt::Edge::try_new(&va, &vb, mt::Curve::NurbsCurve(mt::NurbsCurve::new(curve)))
+                    .map_err(|e| KernelError::Failed(format!("sew: conic edge: {e}")))?
+            }
             EdgeSpec::Chain { .. } => {
                 let curve = self.chain(e)?;
                 mt::Edge::try_new(&va, &vb, mt::Curve::BSplineCurve(curve)).map_err(|e| KernelError::Failed(format!("sew: chain edge: {e}")))?
@@ -252,6 +272,24 @@ impl Cache {
         };
         self.edges.insert((ka, fa, kb, fb, mid, sheet), made.clone());
         Ok(made)
+    }
+
+    /// A line or a conic arc as a rational quadratic in homogeneous coordinates, ending on the
+    /// shared vertices: the edge itself, and one side of a ruled surface over it.
+    fn quadratic(&mut self, e: &EdgeSpec) -> Result<mt::BSplineCurve<mt::Vector4>> {
+        if !e.valid() {
+            return Err(KernelError::Invalid("sew: a conic arc needs finite points and a positive weight".into()));
+        }
+        let (a, b) = e.ends();
+        let (pa, pb) = (self.vertex(a, 0).point(), self.vertex(b, 0).point());
+        let (pa, pb) = (Vec3::new(pa.x, pa.y, pa.z), Vec3::new(pb.x, pb.y, pb.z));
+        let (apex, w) = match e {
+            EdgeSpec::Line { .. } => ((pa + pb) * 0.5, 1.0),
+            EdgeSpec::Conic { apex, w, .. } => (*apex, *w),
+            _ => return Err(KernelError::Invalid("sew: not a line or a conic arc".into())),
+        };
+        let h = |p: Vec3, w: f64| mt::Vector4::new(p.x * w, p.y * w, p.z * w, w);
+        Ok(mt::BSplineCurve::new(mt::KnotVec::bezier_knot(2), vec![h(pa, 1.0), h(apex, w), h(pb, 1.0)]))
     }
 
     /// A Bézier chain as a B-spline of its degree (inner knots as many times as the degree)
@@ -283,6 +321,13 @@ impl Cache {
 /// Sew the faces into a closed solid.
 pub fn sew(faces: &[FaceSpec]) -> Result<Body> {
     sew_impl(faces, false, None).map(|(body, _)| body)
+}
+
+/// [`sew`], with the input face each face of the body was built from (by its place in `faces`).
+pub fn sew_traced(faces: &[FaceSpec]) -> Result<(Body, Vec<usize>)> {
+    let (body, from) = sew_impl(faces, false, None)?;
+    let from = from.filter(|f| f.len() == body.face_count()).ok_or_else(|| KernelError::Failed("sew: faces not followed".into()))?;
+    Ok((body, from))
 }
 
 /// Sew the faces into a closed solid that may touch itself: where four faces meet along a
@@ -503,6 +548,7 @@ fn plane_normal(face: &FaceSpec) -> Option<Vec3> {
         EdgeSpec::Line { a, b } => n + a.cross(*b),
         EdgeSpec::Arc { a, b, mid } => n + a.cross(*mid) + mid.cross(*b),
         EdgeSpec::Chain { ctrl, .. } => ctrl.iter().zip(ctrl.iter().skip(1)).fold(n, |n, (p, q)| n + p.cross(*q)),
+        EdgeSpec::Conic { a, apex, b, .. } => n + a.cross(*apex) + apex.cross(*b),
     });
     n.normalized()
 }
@@ -839,12 +885,18 @@ fn sew_impl(faces: &[FaceSpec], touching: bool, sources: Option<&[Option<crate::
                     let tmp: mt::Face = builder::tsweep(&arc_edge(&va, &vb, *mid), v3(*dir));
                     curved(tmp.oriented_surface(), wires, f.probe, fi)?
                 }
-                SurfSpec::Ruled { a, b } => {
+                SurfSpec::Ruled { a, b } if matches!(a, EdgeSpec::Chain { .. }) || matches!(b, EdgeSpec::Chain { .. }) => {
                     let (ca, cb) = (cache.chain(a)?, cache.chain(b)?);
                     if ca.degree() != cb.degree() || ca.control_points().len() != cb.control_points().len() {
                         return Err(KernelError::Invalid("sew: ruled chains differ in pieces".into()));
                     }
                     let surface = mt::Surface::BSplineSurface(mt::BSplineSurface::homotopy(ca, cb));
+                    curved(surface, wires, f.probe, fi)?
+                }
+                // Between lines and conic arcs: the rational ruled surface through both, exact.
+                SurfSpec::Ruled { a, b } => {
+                    let (ca, cb) = (cache.quadratic(a)?, cache.quadratic(b)?);
+                    let surface = mt::Surface::NurbsSurface(mt::NurbsSurface::new(mt::BSplineSurface::homotopy(ca, cb)));
                     curved(surface, wires, f.probe, fi)?
                 }
             };
@@ -1271,5 +1323,117 @@ mod tests {
         let p = Vec3::new(0.0, 0.0, 10.0);
         flat[1] = quad(p, p + Vec3::X * 3.0, p + Vec3::X * 7.0, p + Vec3::X * 10.0);
         assert!(sew(&flat).unwrap_err().to_string().contains("not on one plane"));
+    }
+
+    type P2 = (f64, f64);
+
+    /// A segment of a section in (y, z): from `a` to `b`, straight, or a conic arc (`arc`: its apex
+    /// and weight).
+    #[derive(Clone, Copy)]
+    struct Sg {
+        a: P2,
+        b: P2,
+        arc: Option<(P2, f64)>,
+    }
+
+    /// The section point `p` on the plane x = `x` + `k`·y.
+    fn on(x: f64, k: f64, p: P2) -> Vec3 {
+        Vec3::new(x + k * p.0, p.0, p.1)
+    }
+
+    fn edge(x: f64, k: f64, s: &Sg) -> EdgeSpec {
+        match s.arc {
+            None => EdgeSpec::Line { a: on(x, k, s.a), b: on(x, k, s.b) },
+            Some((apex, w)) => EdgeSpec::Conic { a: on(x, k, s.a), apex: on(x, k, apex), b: on(x, k, s.b), w },
+        }
+    }
+
+    fn halfway(x: f64, k: f64, s: &Sg) -> Vec3 {
+        match s.arc {
+            None => (on(x, k, s.a) + on(x, k, s.b)) * 0.5,
+            Some((apex, w)) => (on(x, k, s.a) + on(x, k, apex) * (2.0 * w) + on(x, k, s.b)) * (1.0 / (2.0 + 2.0 * w)),
+        }
+    }
+
+    /// `lp` running counter-clockwise about `out`.
+    fn facing(lp: Vec<EdgeSpec>, out: Vec3) -> Vec<EdgeSpec> {
+        let n = lp.iter().fold(Vec3::ZERO, |n, e| {
+            let (a, b) = e.ends();
+            n + a.cross(b)
+        });
+        if n.dot(out) >= 0.0 { lp } else { lp.iter().rev().map(EdgeSpec::reversed).collect() }
+    }
+
+    /// A body lofted straight from section `s0` on x = k·y to `s1` on x = l + k·y: its caps, a
+    /// plane over each pair of lines and a ruled face over each pair of arcs.
+    fn conic_prism(s0: &[Sg], s1: &[Sg], l: f64, k: f64) -> Vec<FaceSpec> {
+        let n = s0.len() as f64;
+        let c = s0.iter().fold((0.0, 0.0), |c, s| (c.0 + s.a.0 / n, c.1 + s.a.1 / n));
+        let mut faces = vec![
+            FaceSpec { loops: vec![facing(s0.iter().map(|s| edge(0.0, k, s)).collect(), -Vec3::X)], surface: SurfSpec::Plane, probe: None },
+            FaceSpec { loops: vec![facing(s1.iter().map(|s| edge(l, k, s)).collect(), Vec3::X)], surface: SurfSpec::Plane, probe: None },
+        ];
+        for (a, b) in s0.iter().zip(s1) {
+            let (e0, e1) = (edge(0.0, k, a), edge(l, k, b));
+            let ((p0, q0), (p1, q1)) = (e0.ends(), e1.ends());
+            let lp = vec![e0.clone(), EdgeSpec::Line { a: q0, b: q1 }, e1.reversed(), EdgeSpec::Line { a: p1, b: p0 }];
+            let m = ((a.a.0 + a.b.0) / 2.0, (a.a.1 + a.b.1) / 2.0);
+            let out = Vec3::new(0.0, m.0 - c.0, m.1 - c.1);
+            faces.push(match (a.arc, b.arc) {
+                (None, None) => FaceSpec { loops: vec![facing(lp, out)], surface: SurfSpec::Plane, probe: None },
+                _ => FaceSpec {
+                    loops: vec![facing(lp, out)],
+                    surface: SurfSpec::Ruled { a: e0, b: e1 },
+                    probe: Some(((halfway(0.0, k, a) + halfway(l, k, b)) * 0.5, out)),
+                },
+            });
+        }
+        faces
+    }
+
+    /// A 10 × 10 square in (y, z) with the corner (10, 10) rounded to radius `r` (a quarter
+    /// circle as a conic arc).
+    fn rounded(r: f64) -> Vec<Sg> {
+        let w = std::f64::consts::FRAC_1_SQRT_2;
+        vec![
+            Sg { a: (0.0, 0.0), b: (10.0, 0.0), arc: None },
+            Sg { a: (10.0, 0.0), b: (10.0, 10.0 - r), arc: None },
+            Sg { a: (10.0, 10.0 - r), b: (10.0 - r, 10.0), arc: Some(((10.0, 10.0), w)) },
+            Sg { a: (10.0 - r, 10.0), b: (0.0, 10.0), arc: None },
+            Sg { a: (0.0, 10.0), b: (0.0, 0.0), arc: None },
+        ]
+    }
+
+    fn area(r: f64) -> f64 {
+        100.0 - (1.0 - std::f64::consts::FRAC_PI_4) * r * r
+    }
+
+    /// Conic edges sew exactly, on square and skewed (30°) end planes: the body is the section
+    /// times its length, and sew_traced names the input face of every face once.
+    #[test]
+    fn conic_edges_sew_exactly() {
+        for k in [0.0, 30f64.to_radians().tan()] {
+            let s = rounded(4.0);
+            let faces = conic_prism(&s, &s, 20.0, k);
+            let (body, from) = sew_traced(&faces).unwrap_or_else(|e| panic!("{k}: {e}"));
+            assert!(body.validity().is_empty(), "{k}: {:?}", body.validity());
+            let mut seen = from.clone();
+            seen.sort_unstable();
+            assert_eq!(seen, (0..faces.len()).collect::<Vec<_>>(), "{k}");
+            let (got, want) = (crate::measure(&body).unwrap().volume, area(4.0) * 20.0);
+            assert!((got - want).abs() < 1e-4 * want, "{k}: {got} vs {want}");
+        }
+    }
+
+    /// A ruled face between two conic arcs (the rounding shrinking from radius 4 to 2 along the
+    /// body): its slices are quarter circles, so the volume is Simpson's of the sections' areas.
+    #[test]
+    fn a_ruled_face_between_conic_arcs() {
+        let faces = conic_prism(&rounded(4.0), &rounded(2.0), 20.0, 0.0);
+        let body = sew(&faces).unwrap();
+        assert!(body.validity().is_empty(), "{:?}", body.validity());
+        let want = 20.0 / 6.0 * (area(4.0) + 4.0 * area(3.0) + area(2.0));
+        let got = crate::measure(&body).unwrap().volume;
+        assert!((got - want).abs() < 1e-4 * want, "{got} vs {want}");
     }
 }
