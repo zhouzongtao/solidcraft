@@ -2343,6 +2343,9 @@ pub struct Document {
     /// Design properties (project, author…) and other tools' data, kept as they are (#1015).
     #[serde(default, skip_serializing_if = "crate::Metadata::is_empty")]
     pub metadata: crate::Metadata,
+    /// Extensions' model data, kept as it is when an extension is not part of the program.
+    #[serde(default, skip_serializing_if = "crate::extension_data::ExtensionData::is_empty")]
+    pub extensions: crate::extension_data::ExtensionData,
     pub params: Vec<Param>,
     pub features: Vec<Feature>,
     /// Timeline marker: features at or after this index are rolled back (not evaluated).
@@ -2558,6 +2561,7 @@ impl Document {
             name: name.into(),
             units: default_units(),
             metadata: Default::default(),
+            extensions: Default::default(),
             params: Vec::new(),
             features: Vec::new(),
             marker: None,

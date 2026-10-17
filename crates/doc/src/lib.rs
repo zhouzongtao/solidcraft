@@ -21,6 +21,7 @@ mod document;
 mod eval;
 pub mod expr;
 pub mod extension;
+pub mod extension_data;
 pub mod face_anchor;
 mod feature_geometry;
 mod feature_refs;
