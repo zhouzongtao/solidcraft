@@ -383,6 +383,11 @@ move
     Angle = move.angle (Angle)
   expressions: move.x, move.y, move.z, move.angle
 import
+extension
+  inputs:
+    size = extension.size (Length)
+    turn = extension.turn (Angle)
+  expressions: extension.size, extension.turn
 mesh_convert
   inputs:
     Tolerance = mesh_convert.tolerance (Length)

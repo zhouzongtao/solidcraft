@@ -190,6 +190,10 @@ pub(super) fn fixtures() -> Vec<(&'static str, Value)> {
         ("surface_trim", json!({"type": "surface_trim", "body": "B", "plane": plane("trim"), "keep": o})),
         ("move", json!({"type": "move", "bodies": ["B"], "translate": ["move.x", "move.y", "move.z"], "angle": "move.angle"})),
         ("import", json!({"type": "import", "file": "a.step", "step": ""})),
+        (
+            "extension",
+            json!({"type": "extension", "ext": "x", "kind": "k", "version": 1, "inputs": [{"label": "size", "expr": "extension.size", "kind": "length"}, {"label": "turn", "expr": "extension.turn", "kind": "angle"}], "params": {"a": 1}}),
+        ),
         ("mesh_convert", json!({"type": "mesh_convert", "body": "B", "tolerance": "mesh_convert.tolerance"})),
         ("mesh_import", json!({"type": "mesh_import", "file": "a.stl", "meshes": []})),
     ]

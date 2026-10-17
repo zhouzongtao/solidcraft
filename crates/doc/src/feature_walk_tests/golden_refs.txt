@@ -211,6 +211,7 @@ surface_trim
 move
   remap_bodies: bodies[0]
 import
+extension
 mesh_convert
   remap_bodies: body
 mesh_import

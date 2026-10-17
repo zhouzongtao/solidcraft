@@ -186,5 +186,6 @@ surface_trim
 move
   moves: rotate_axis[1], rotate_axis[2]
 import
+extension
 mesh_convert
 mesh_import
