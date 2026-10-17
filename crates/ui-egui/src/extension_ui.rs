@@ -2,9 +2,13 @@
 //! start-up. A tab lists its panels in order; its commands come from the registry by (tab,
 //! panel) as on any tab, and it sits before UTILITIES. An icon is drawn in code, as every
 //! SolidCraft icon is, by a function the extension gives under a name with a dot in it
-//! (`bridge.t_beam`), which no built-in icon has.
+//! (`bridge.t_beam`), which no built-in icon has. An extension command with a registered form
+//! opens its dialog ([`schema_dialog`]) with its parameter figures ([`figure_view`]).
 
 use std::sync::RwLock;
+
+pub mod figure_view;
+pub mod schema_dialog;
 
 pub use egui;
 

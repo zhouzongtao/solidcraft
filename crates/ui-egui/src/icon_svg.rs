@@ -757,7 +757,8 @@ mod tests {
     #[test]
     fn command_artwork_resolves_and_construct_methods_are_distinct() {
         let specs = solidcraft_engine::command_specs();
-        for command in &specs {
+        // Extensions' commands (registered by tests here) draw their own icons.
+        for command in specs.iter().filter(|c| !solidcraft_engine::extensions::is_extension_command(c.id)) {
             assert!(!resolve(command.icon).placeholder, "{}: {}", command.id, command.icon);
         }
         let construction: Vec<_> = specs.iter().filter(|c| c.panel == "CONSTRUCT").collect();

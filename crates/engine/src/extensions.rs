@@ -4,13 +4,19 @@
 //! registration, or an id a built-in command has, is refused.
 //!
 //! An extension's commands keep its model data in the design's extension data area
-//! ([`solidcraft_doc::extension_data`]) through [`set_data`] and [`remove_data`].
+//! ([`solidcraft_doc::extension_data`]) through [`set_data`] and [`remove_data`], and a feature
+//! command gets its dialog, and its parameter figures, from a registered [`Form`] ([`forms`]).
 
 use std::sync::{Mutex, RwLock};
 
 use crate::cmd::CommandSpec;
 pub use crate::cmd::extension_feature::add_extension_feature;
 use crate::{EngineError, Result, Session};
+pub use forms::{
+    Field, FieldType, Figure, FigureGroup, Form, Group, HAlign, Item, Tab, VAlign, figure, form, form_for, register_figure, register_form,
+};
+
+pub mod forms;
 
 /// The commands extensions registered, in registration order.
 static REGISTERED: RwLock<Vec<&'static [CommandSpec]>> = RwLock::new(Vec::new());
@@ -35,6 +41,12 @@ pub fn register_commands(specs: &'static [CommandSpec]) -> Result<()> {
 /// The commands extensions registered.
 pub(crate) fn registered() -> Vec<&'static CommandSpec> {
     REGISTERED.read().map(|r| r.iter().flat_map(|s| s.iter()).collect()).unwrap_or_default()
+}
+
+/// Whether command `id` was registered by an extension (its label is the extension's to
+/// translate, not SolidCraft's catalog's).
+pub fn is_extension_command(id: &str) -> bool {
+    registered().iter().any(|c| c.id == id)
 }
 
 /// Set `ext`'s values under `entries`' keys in the design's extension data (checked as

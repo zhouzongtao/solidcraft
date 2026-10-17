@@ -994,7 +994,8 @@ fn redefine(s: &mut Session, p: &Value) -> Result<Value> {
                 | "plastic.snap_fit"
                 | "plastic.rest"
         );
-    if !constructor {
+    // An extension's feature command with a form makes one feature of the form's kind.
+    if !constructor && crate::extensions::form(spec.id).is_none() {
         return Err(bad(cmd, format!("`{cid}` does not make a feature")));
     }
     let mut params = p.get("params").cloned().unwrap_or_else(|| json!({}));
@@ -1054,6 +1055,11 @@ fn redefine(s: &mut Session, p: &Value) -> Result<Value> {
     // forms: an edit may turn one into the other.
     let boundary = |k: &FeatureKind| matches!(k, FeatureKind::SurfaceBoundary { .. } | FeatureKind::SurfaceNetwork { .. });
     if std::mem::discriminant(&new.kind) != std::mem::discriminant(&old.kind) && !(boundary(&new.kind) && boundary(&old.kind)) {
+        return Err(bad(cmd, format!("{} is not a {} feature", old.name, cid)));
+    }
+    if let (FeatureKind::Extension { ext: e0, kind: k0, .. }, FeatureKind::Extension { ext: e1, kind: k1, .. }) = (&old.kind, &new.kind)
+        && (e0 != e1 || k0 != k1)
+    {
         return Err(bad(cmd, format!("{} is not a {} feature", old.name, cid)));
     }
     // Optional inputs can move other inputs' positions (e.g. Distance 2 goes before Taper).

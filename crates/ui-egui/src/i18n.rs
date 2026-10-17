@@ -291,7 +291,9 @@ mod tests {
     #[test]
     fn every_command_label_is_in_the_english_catalog() {
         let texts = english_texts();
-        let mut untranslated: Vec<&str> = solidcraft_engine::command_specs().iter().map(|c| c.label).filter(|label| !texts.contains(label)).collect();
+        // Extensions' commands (registered by tests here) carry their own catalogs.
+        let builtin = solidcraft_engine::command_specs().into_iter().filter(|c| !solidcraft_engine::extensions::is_extension_command(c.id));
+        let mut untranslated: Vec<&str> = builtin.map(|c| c.label).filter(|label| !texts.contains(label)).collect();
         untranslated.sort_unstable();
         untranslated.dedup();
         assert!(
