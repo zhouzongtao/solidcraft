@@ -52,11 +52,20 @@ fn key(tab: &str, panel: &str) -> String {
     format!("{WORKSPACE}/{tab}/{panel}")
 }
 
-/// The buttons a panel shows: the user's list, or the first `promoted` commands of the panel.
+/// The buttons a panel shows: the user's list, or the first `promoted` commands of the panel. A
+/// list none of whose commands exist any more (saved by a build or a product with other commands
+/// on a tab of the same name) is set aside, so the panel is not left empty.
 pub fn buttons(app: &SolveApp, tab: &str, panel: &str, cmds: &[&'static CommandSpec], promoted: usize) -> Vec<&'static CommandSpec> {
-    match app.toolbar_custom.panels.get(&key(tab, panel)) {
-        Some(ids) => ids.iter().filter_map(|id| solidcraft_engine::find_command(id)).collect(),
-        None => cmds.iter().take(promoted).copied().collect(),
+    let own: Vec<&'static CommandSpec> = app
+        .toolbar_custom
+        .panels
+        .get(&key(tab, panel))
+        .map(|ids| ids.iter().filter_map(|id| solidcraft_engine::find_command(id)).collect())
+        .unwrap_or_default();
+    if own.is_empty() && !app.toolbar_custom.panels.get(&key(tab, panel)).is_some_and(|ids| ids.is_empty()) {
+        cmds.iter().take(promoted).copied().collect()
+    } else {
+        own
     }
 }
 

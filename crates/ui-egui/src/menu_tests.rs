@@ -618,6 +618,24 @@ fn occurrence_moves_turn_about_their_origin_then_move() {
     assert_eq!(*app.session.pending_moves.get(&occ).unwrap(), solidcraft_engine::doc::IDENTITY);
 }
 
+/// A panel's saved buttons none of which exist any more (another build, another product with a
+/// tab of the same name) leave its default buttons, not an empty panel; a panel emptied on
+/// purpose stays empty.
+#[test]
+fn a_saved_panel_of_unknown_commands_shows_its_defaults() {
+    use crate::toolbar_custom as tc;
+    let mut app = sample_app();
+    let lists = tc::panel_lists("SOLID");
+    let (_, cmds, n) = lists.iter().find(|(p, ..)| *p == "CREATE").unwrap();
+    let defaults: Vec<&str> = tc::buttons(&app, "SOLID", "CREATE", cmds, *n).iter().map(|c| c.id).collect();
+    let key = format!("{}/SOLID/CREATE", tc::WORKSPACE);
+    app.toolbar_custom.panels.insert(key.clone(), vec!["gone.command".into()]);
+    let shown: Vec<&str> = tc::buttons(&app, "SOLID", "CREATE", cmds, *n).iter().map(|c| c.id).collect();
+    assert_eq!(shown, defaults);
+    app.toolbar_custom.panels.insert(key, Vec::new());
+    assert!(tc::buttons(&app, "SOLID", "CREATE", cmds, *n).is_empty());
+}
+
 #[test]
 fn toolbar_pins_removes_reorders_and_keeps_its_layout() {
     use crate::toolbar_custom as tc;
