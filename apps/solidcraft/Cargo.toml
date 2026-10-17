@@ -7,6 +7,17 @@ license.workspace = true
 publish = false
 default-run = "solidcraft"
 
+# The program as a library (run()), so a product built on SolidCraft can register its extensions
+# first; src/main.rs calls it.
+[lib]
+name = "solidcraft_app"
+path = "src/lib.rs"
+doctest = false
+
+[[bin]]
+name = "solidcraft"
+path = "src/main.rs"
+
 # The workspace lints, except unsafe_code: denied, not forbidden, so that src/open_documents.rs
 # (macOS file-open events), src/native_crash.rs (Windows exception filter) and src/native_frame.rs
 # (Windows resize border) can allow it: none has a safe API. Keep the rest in sync with [workspace.lints].

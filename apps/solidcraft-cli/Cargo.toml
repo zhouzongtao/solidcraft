@@ -9,6 +9,13 @@ default-run = "solidcraft-cli"
 [lints]
 workspace = true
 
+# The program as a library (run()), so a product built on SolidCraft can register its extensions
+# first; src/main.rs calls it.
+[lib]
+name = "solidcraft_cli"
+path = "src/lib.rs"
+doctest = false
+
 [[bin]]
 name = "solidcraft-cli"
 path = "src/main.rs"
