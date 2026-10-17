@@ -46,6 +46,9 @@ pub struct Form {
     /// The figure shown while no field with a figure of its own has focus.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub figure: Option<String>,
+    /// The name the command gives a new feature left unnamed (the Name field's hint).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_name: Option<String>,
     pub tabs: Vec<Tab>,
 }
 
@@ -289,6 +292,9 @@ fn check_form(form: &Form) -> Result<()> {
     {
         return Err(bad(what, format!("no figure `{}` (register figures first)", shown(name))));
     }
+    if let Some(name) = &form.default_name {
+        check_text(what, name, MAX_LABEL, false)?;
+    }
     if form.tabs.is_empty() || form.tabs.len() > MAX_TABS {
         return Err(bad(what, format!("a form has 1 to {MAX_TABS} tabs")));
     }
@@ -507,7 +513,7 @@ mod tests {
     }
 
     fn slab_form(command: &str, kind: &str) -> Value {
-        json!({"command": command, "ext": EXT, "kind": kind, "figure": "test_forms.plan", "tabs": [
+        json!({"command": command, "ext": EXT, "kind": kind, "figure": "test_forms.plan", "default_name": "Slab", "tabs": [
             {"label": "Size", "groups": [{"label": "Plan", "fields": [
                 {"id": "w", "label": "Width w", "type": "length", "default": "20 mm", "min": "1 mm"},
                 {"id": "n", "label": "Spans n", "type": "integer", "default": 3, "min": "1", "max": "50"},
@@ -541,6 +547,7 @@ mod tests {
         assert_eq!((slab.ext.as_str(), slab.kind.as_str()), (EXT, "slab"));
         assert_eq!(form_for(EXT, "slab").map(|f| f.command.as_str()), Some("test_forms.slab"));
         assert!(form("test_forms.bare").is_none());
+        assert_eq!(slab.default_name.as_deref(), Some("Slab"));
         let refused = |change: &dyn Fn(&mut Value), why: &str| {
             let mut v = slab_form("test_forms.bare", "slab");
             change(&mut v);
@@ -571,6 +578,7 @@ mod tests {
             "don't fit its type",
         );
         refused(&|v| v["tabs"][0]["label"] = json!("bad\u{7}label"), "control characters");
+        refused(&|v| v["default_name"] = json!(""), "1 to");
         let again: Form = serde_json::from_value(slab_form("test_forms.slab", "slab")).unwrap();
         assert!(register_form(again).unwrap_err().to_string().contains("already has a form"));
         assert!(form("test_forms.bare").is_none(), "nothing refused was registered");

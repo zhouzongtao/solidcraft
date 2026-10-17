@@ -103,7 +103,8 @@ pub fn rows(app: &mut SolveApp, ui: &mut egui::Ui, k: &mut Sd, editing: bool) ->
     let mut enter = false;
     if !editing {
         row_label(ui, "Name");
-        let r = ui.add(egui::TextEdit::singleline(&mut k.name).hint_text(crate::i18n::tr_label("automatic")));
+        let hint = k.form.default_name.as_deref().unwrap_or_default();
+        let r = ui.add(egui::TextEdit::singleline(&mut k.name).hint_text(hint));
         enter |= r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         ui.end_row();
     }
@@ -112,10 +113,20 @@ pub fn rows(app: &mut SolveApp, ui: &mut egui::Ui, k: &mut Sd, editing: bool) ->
     let focused = ui.ctx().memory(|m| m.focused());
     let field = fields(form).find(|f| Some(field_id(form, f)) == focused);
     let shown = field.and_then(|f| f.figure.as_deref()).or(form.figure.as_deref()).and_then(solidcraft_engine::extensions::figure);
-    if let Some(figure) = shown {
+    // The room of the tallest figure the form shows, so the fields stay put as the figure changes.
+    let tallest = std::iter::once(form.figure.as_deref())
+        .chain(fields(form).map(|f| f.figure.as_deref()))
+        .flatten()
+        .filter_map(solidcraft_engine::extensions::figure)
+        .map(|f| super::figure_view::size(f, FIGURE_W).y)
+        .fold(0.0f32, f32::max);
+    if tallest > 0.0 {
         row_label(ui, "");
-        let (rect, _) = ui.allocate_exact_size(super::figure_view::size(figure, FIGURE_W), egui::Sense::hover());
-        super::figure_view::paint(&ui.painter_at(rect), rect, figure, &field.map(Field::lit).unwrap_or_default());
+        let (room, _) = ui.allocate_exact_size(egui::vec2(FIGURE_W, tallest), egui::Sense::hover());
+        if let Some(figure) = shown {
+            let rect = egui::Rect::from_center_size(room.center(), super::figure_view::size(figure, FIGURE_W));
+            super::figure_view::paint(&ui.painter_at(room), rect, figure, &field.map(Field::lit).unwrap_or_default());
+        }
         ui.end_row();
     }
     if form.tabs.len() > 1 {
@@ -274,13 +285,17 @@ mod tests {
             {"items": [{"type": "polyline", "points": [[0, 5], [40, 5], [40, 15], [0, 15]], "closed": true}]},
             {"name": "w", "items": [{"type": "line", "a": [0, 2], "b": [40, 2]}, {"type": "text", "at": [20, 1], "text": "w", "height": 2, "h": "center", "v": "top"}]},
         ]});
-        if let Ok(f) = serde_json::from_value(figure) {
-            let _ = solidcraft_engine::extensions::register_figure(f);
+        // A tall one for the count, so showing it would push the fields down.
+        let tall = json!({"name": "test_ui_forms.count", "bounds": [0, 0, 10, 40], "groups": [{"name": "n", "items": [{"type": "line", "a": [5, 0], "b": [5, 40]}]}]});
+        for f in [figure, tall] {
+            if let Ok(f) = serde_json::from_value(f) {
+                let _ = solidcraft_engine::extensions::register_figure(f);
+            }
         }
-        let form = json!({"command": "test_ui_forms.plate", "ext": EXT, "kind": "plate", "figure": "test_ui_forms.plan", "tabs": [
+        let form = json!({"command": "test_ui_forms.plate", "ext": EXT, "kind": "plate", "figure": "test_ui_forms.plan", "default_name": "Plate", "tabs": [
             {"label": "Size", "groups": [{"label": "Plate", "fields": [
                 {"id": "w", "label": "Width w", "type": "length", "default": "20 mm", "min": "1 mm"},
-                {"id": "n", "label": "Count n", "type": "integer", "default": 1, "min": "1"},
+                {"id": "n", "label": "Count n", "type": "integer", "default": 1, "min": "1", "figure": "test_ui_forms.count"},
             ]}]},
         ]});
         if let Ok(f) = serde_json::from_value(form) {
@@ -319,8 +334,11 @@ mod tests {
         h.frames(2);
         assert!(matches!(h.app.dialog.as_ref().map(|d| &d.kind), Some(Kind::Schema(_))), "the form's dialog opens");
         type_into(&mut h, "Width w", "30 mm");
+        // The count's taller figure takes the figure's place without moving the fields.
+        let before = crate::scenario::handle_at("dialog:Width w");
         type_into(&mut h, "Count n", "2");
         h.frames(2);
+        assert_eq!(crate::scenario::handle_at("dialog:Width w"), before, "the fields stay put");
         ok(&mut h);
         assert!(h.app.dialog.is_none(), "OK closes the dialog: {:?}", h.app.dialog.as_ref().and_then(|d| d.error.clone()));
         assert!((volume(&h) - 30.0 * 10.0 * 10.0).abs() < 1e-6, "{}", volume(&h));
