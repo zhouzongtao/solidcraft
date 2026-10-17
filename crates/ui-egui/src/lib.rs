@@ -44,6 +44,7 @@ mod dimension_create_ui_tests;
 pub mod documents;
 pub mod drag_snap;
 pub mod edit_clipboard;
+pub mod extension_ui;
 pub mod fonts;
 pub mod frame;
 pub mod frame_rate;

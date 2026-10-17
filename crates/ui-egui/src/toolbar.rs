@@ -18,6 +18,9 @@ fn command_accent(icon: &str) -> Color32 {
 
 /// Panels shown on each tab (in order). Commands come from the registry by (tab, panel).
 pub fn panels(tab: &str) -> &'static [&'static str] {
+    if let Some((p, _)) = crate::extension_ui::tab(tab) {
+        return p;
+    }
     if let Some(p) = crate::workspace::panels(tab) {
         return p;
     }
@@ -36,6 +39,9 @@ pub fn panels(tab: &str) -> &'static [&'static str] {
 /// How many commands of a panel get a button on a fresh (or reset) toolbar. The user's own
 /// layout (`toolbar_custom`) has no cap: every pinned command gets a button.
 pub fn promoted(tab: &str, panel: &str) -> usize {
+    if let Some((_, n)) = crate::extension_ui::tab(tab) {
+        return n;
+    }
     match (tab, panel) {
         ("SOLID", "CREATE") => 4,
         ("SOLID", "MODIFY") => 4,
@@ -685,7 +691,7 @@ pub fn toolbar(app: &mut SolveApp, ui: &mut egui::Ui) {
         if crate::render_workspace::active(app) {
             tabs.push("RENDER");
         } else {
-            tabs.extend(TABS.iter());
+            tabs.extend(crate::extension_ui::tabs());
         }
         for tab in tabs {
             let display_tab = app.tr_label(tab);

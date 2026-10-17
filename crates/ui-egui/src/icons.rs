@@ -2,7 +2,8 @@
 //!
 //! Command, menu, browser and timeline icons are the SVG masters in `assets/icons/ui/design/svg`,
 //! rendered by [`crate::icon_svg`]: colours come from `palette.toml` (light and dark, and the
-//! accents), never from the caller. An icon with no master yet draws the placeholder.
+//! accents), never from the caller. An icon with no master yet draws the placeholder. An
+//! extension's icons (`extension_ui::register_icon`) are drawn by their own code instead.
 //! The glyph, marker, navigation and pointer sources below are not command icons.
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -10,7 +11,6 @@ use std::sync::{Arc, Mutex};
 use egui::{Color32, Painter, Rect, TextureHandle, TextureOptions, pos2};
 
 use crate::icon_svg::{self, Look};
-
 #[path = "../../../assets/icons/ui/source/glyphs.rs"]
 pub(crate) mod glyphs;
 #[path = "../../../assets/icons/ui/source/markers.rs"]
@@ -24,11 +24,14 @@ pub(crate) mod pointer;
 #[derive(Clone, Default)]
 struct Cache(Arc<Mutex<HashMap<(&'static str, Look, u32), TextureHandle>>>);
 
-/// Draw the icon `name` in `r`. The ink, fill and accent colours the callers pass are no longer
-/// used: the palette decides. Only the ink's opacity is kept, so a dimmed (disabled) button dims
-/// its icon.
-pub fn paint(p: &Painter, r: Rect, name: &str, ink: Color32, _fill: Color32, _accent: Color32) {
-    paint_icon(p, r, name, f32::from(ink.a()) / 255.0);
+/// Draw the icon `name` in `r`. SolidCraft's own icons don't use the ink, fill and accent colours
+/// the callers pass: the palette decides; only the ink's opacity is kept, so a dimmed (disabled)
+/// button dims its icon. An extension's icon is drawn by its code, with those colours.
+pub fn paint(p: &Painter, r: Rect, name: &str, ink: Color32, fill: Color32, accent: Color32) {
+    match crate::extension_ui::icon(name) {
+        Some(draw) => draw(p, r, ink, fill, accent),
+        None => paint_icon(p, r, name, f32::from(ink.a()) / 255.0),
+    }
 }
 
 /// [`paint`] with an explicit opacity (0 to 1).
