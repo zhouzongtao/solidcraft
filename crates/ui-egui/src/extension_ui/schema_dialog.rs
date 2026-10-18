@@ -120,9 +120,10 @@ pub fn rows(app: &mut SolveApp, ui: &mut egui::Ui, k: &mut Sd, editing: bool) ->
     // The focused field's figure (else the form's), with that field's groups lit.
     let focused = ui.ctx().memory(|m| m.focused());
     let field = fields(form).find(|f| Some(field_id(form, f)) == focused);
-    let shown = field.and_then(|f| f.figure.as_deref()).or(form.figure.as_deref()).and_then(solidcraft_engine::extensions::figure);
+    let shown = shown_figure(form, k.tab, field).and_then(solidcraft_engine::extensions::figure);
     // The room of the tallest figure the form shows, so the fields stay put as the figure changes.
     let tallest = std::iter::once(form.figure.as_deref())
+        .chain(form.tabs.iter().map(|t| t.figure.as_deref()))
         .chain(fields(form).map(|f| f.figure.as_deref()))
         .flatten()
         .filter_map(solidcraft_engine::extensions::figure)
@@ -130,10 +131,16 @@ pub fn rows(app: &mut SolveApp, ui: &mut egui::Ui, k: &mut Sd, editing: bool) ->
         .fold(0.0f32, f32::max);
     if tallest > 0.0 {
         row_label(ui, "");
-        let (room, _) = ui.allocate_exact_size(egui::vec2(FIGURE_W, tallest), egui::Sense::hover());
+        let (room, pointed) = ui.allocate_exact_size(egui::vec2(FIGURE_W, tallest), egui::Sense::hover());
         if let Some(figure) = shown {
+            let lit = field.map(Field::lit).unwrap_or_default();
             let rect = egui::Rect::from_center_size(room.center(), super::figure_view::size(figure, FIGURE_W));
-            super::figure_view::paint(&ui.painter_at(room), rect, figure, &field.map(Field::lit).unwrap_or_default());
+            super::figure_view::paint(&ui.painter_at(room), rect, figure, &lit);
+            // Pointed at, it shows larger: a drawing of many parts reads better.
+            pointed.on_hover_ui(|ui| {
+                let (big, _) = ui.allocate_exact_size(super::figure_view::size(figure, FIGURE_W * 2.6), egui::Sense::hover());
+                super::figure_view::paint(&ui.painter_at(big), big, figure, &lit);
+            });
         }
         ui.end_row();
     }
@@ -314,6 +321,12 @@ fn import_packs(app: &mut SolveApp, command: String) {
             Err(e) => (e, true),
         });
     });
+}
+
+/// The figure to show: the focused field's, else the open tab's, else the form's.
+fn shown_figure<'a>(form: &'a Form, tab: usize, focused: Option<&'a Field>) -> Option<&'a str> {
+    let tab = form.tabs.get(tab).or(form.tabs.first());
+    focused.and_then(|f| f.figure.as_deref()).or(tab.and_then(|t| t.figure.as_deref())).or(form.figure.as_deref())
 }
 
 /// The text edit of field `f`, by which the figure knows the focused field.
@@ -582,5 +595,21 @@ mod tests {
         assert!(presets::list(form).unwrap().iter().all(|p| p.name != "UI pack"));
         assert!(h.app.session.doc.features.is_empty() && !h.app.session.is_dirty(), "packs are not the design's");
         let _ = std::fs::remove_dir_all(dir);
+    }
+    #[test]
+    fn the_figure_shown_is_the_fields_else_the_tabs_else_the_forms() {
+        let form: Form = serde_json::from_value(json!({"command": "c", "ext": "e", "kind": "k", "figure": "form", "tabs": [
+            {"label": "A", "figure": "tab A", "groups": [{"fields": [
+                {"id": "x", "label": "X", "type": "length", "default": "1 mm", "figure": "field x"},
+                {"id": "y", "label": "Y", "type": "length", "default": "1 mm"},
+            ]}]},
+            {"label": "B", "groups": [{"fields": [{"id": "z", "label": "Z", "type": "length", "default": "1 mm"}]}]},
+        ]}))
+        .unwrap();
+        let (x, y) = (form.field("x"), form.field("y"));
+        assert_eq!(shown_figure(&form, 0, x), Some("field x"));
+        assert_eq!(shown_figure(&form, 0, y), Some("tab A"));
+        assert_eq!(shown_figure(&form, 0, None), Some("tab A"));
+        assert_eq!(shown_figure(&form, 1, None), Some("form"), "a tab without one shows the form's");
     }
 }

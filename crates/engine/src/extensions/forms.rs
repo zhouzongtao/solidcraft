@@ -47,7 +47,7 @@ pub struct Form {
     /// is not applied (raise it when a field changes meaning).
     #[serde(default = "first_version")]
     pub version: u64,
-    /// The figure shown while no field with a figure of its own has focus.
+    /// The figure shown while no field with a figure of its own has focus (and its tab has none).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub figure: Option<String>,
     /// The name the command gives a new feature left unnamed (the Name field's hint).
@@ -59,6 +59,9 @@ pub struct Form {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Tab {
     pub label: String,
+    /// The tab's figure, shown while no field with a figure of its own has focus.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub figure: Option<String>,
     pub groups: Vec<Group>,
 }
 
@@ -89,7 +92,7 @@ pub struct Field {
     /// A choice's options: (id, label).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub options: Vec<(String, String)>,
-    /// The figure shown while this field has focus (else the form's).
+    /// The figure shown while this field has focus (else its tab's, else the form's).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub figure: Option<String>,
     /// The figure groups lit while this field has focus (else the group named after the field).
@@ -322,6 +325,11 @@ fn check_form(form: &Form) -> Result<()> {
     let mut ids = BTreeSet::new();
     for tab in &form.tabs {
         check_text(what, &tab.label, MAX_LABEL, false)?;
+        if let Some(name) = &tab.figure
+            && figure(name).is_none()
+        {
+            return Err(bad(what, format!("tab `{}`: no figure `{}`", tab.label, shown(name))));
+        }
         if tab.groups.is_empty() || tab.groups.len() > MAX_GROUPS {
             return Err(bad(what, format!("tab `{}` needs 1 to {MAX_GROUPS} groups", tab.label)));
         }
@@ -333,7 +341,7 @@ fn check_form(form: &Form) -> Result<()> {
                 return Err(bad(what, format!("group `{}` of tab `{}` has no fields", group.label, tab.label)));
             }
             for field in &group.fields {
-                check_field(what, form, field, inputs, &empty)?;
+                check_field(what, form, tab, field, inputs, &empty)?;
                 if !ids.insert(field.id.as_str()) || ids.len() > MAX_FIELDS {
                     return Err(bad(what, format!("field `{}` is repeated (or there are more than {MAX_FIELDS})", shown(&field.id))));
                 }
@@ -343,7 +351,7 @@ fn check_form(form: &Form) -> Result<()> {
     Ok(())
 }
 
-fn check_field(what: &str, form: &Form, field: &Field, inputs: &[(&str, Kind, &str)], empty: &solidcraft_doc::Document) -> Result<()> {
+fn check_field(what: &str, form: &Form, tab: &Tab, field: &Field, inputs: &[(&str, Kind, &str)], empty: &solidcraft_doc::Document) -> Result<()> {
     let id = shown(&field.id);
     if field.id.is_empty() || field.id.len() > MAX_ID || field.id == "name" {
         return Err(bad(what, format!("`{id}` can't name a field (1 to {MAX_ID} bytes; `name` is the feature's)")));
@@ -393,7 +401,7 @@ fn check_field(what: &str, form: &Form, field: &Field, inputs: &[(&str, Kind, &s
     if field.ty != FieldType::Choice && !field.options.is_empty() {
         return Err(bad(what, format!("field `{id}`: only a choice has options")));
     }
-    let shows = field.figure.as_ref().or(form.figure.as_ref());
+    let shows = field.figure.as_ref().or(tab.figure.as_ref()).or(form.figure.as_ref());
     if let Some(name) = &field.figure
         && figure(name).is_none()
     {
@@ -538,7 +546,7 @@ pub(crate) mod tests {
                 {"id": "w", "label": "Width w", "type": "length", "default": "20 mm", "min": "1 mm"},
                 {"id": "n", "label": "Spans n", "type": "integer", "default": 3, "min": "1", "max": "50"},
             ]}]},
-            {"label": "Options", "groups": [{"fields": [
+            {"label": "Options", "figure": "test_forms.plan", "groups": [{"fields": [
                 {"id": "thick", "label": "Thick", "type": "switch", "default": false},
                 {"id": "spans", "label": "Span lengths", "type": "lengths", "default": "7800 mm, 7200 mm", "highlight": ["w", "n"]},
             ]}]},
@@ -578,6 +586,7 @@ pub(crate) mod tests {
         refused(&|v| v["command"] = json!("TEST_FORMS.BARE"), "no such command");
         refused(&|v| v["kind"] = json!("nothing"), "no generator");
         refused(&|v| v["figure"] = json!("test_forms.none"), "no figure");
+        refused(&|v| v["tabs"][1]["figure"] = json!("test_forms.none"), "no figure");
         refused(&|v| v["tabs"] = json!([]), "1 to");
         refused(&|v| v["tabs"][0]["groups"][0]["fields"][0]["id"] = json!("x"), "needs an input");
         refused(&|v| v["tabs"][0]["groups"][0]["fields"][0]["type"] = json!("angle"), "needs an input");
