@@ -17,6 +17,7 @@ pub use forms::{
 };
 
 pub mod forms;
+pub mod presets;
 
 /// The commands extensions registered, in registration order.
 static REGISTERED: RwLock<Vec<&'static [CommandSpec]>> = RwLock::new(Vec::new());

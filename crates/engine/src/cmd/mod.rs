@@ -35,6 +35,7 @@ pub mod extension_feature;
 mod face;
 mod features;
 mod features_more;
+pub mod presets;
 pub use features::{auto_operation, extrude_reach};
 mod component_link;
 mod config;
@@ -280,6 +281,7 @@ pub fn command_specs() -> Vec<&'static CommandSpec> {
     v.extend(view_dxf::COMMANDS.iter());
     v.extend(diagnostics::COMMANDS.iter());
     v.extend(render::COMMANDS.iter());
+    v.extend(presets::COMMANDS.iter());
     v.extend(crate::extensions::registered());
     v
 }

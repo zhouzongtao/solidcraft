@@ -43,6 +43,10 @@ pub struct Form {
     /// The extension feature the command makes.
     pub ext: String,
     pub kind: String,
+    /// The version of its fields, which parameter packs record: a pack saved by a newer version
+    /// is not applied (raise it when a field changes meaning).
+    #[serde(default = "first_version")]
+    pub version: u64,
     /// The figure shown while no field with a figure of its own has focus.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub figure: Option<String>,
@@ -117,6 +121,22 @@ impl FieldType {
             FieldType::Number | FieldType::Integer => Some(Kind::Unitless),
             FieldType::Lengths | FieldType::Choice | FieldType::Switch => None,
         }
+    }
+}
+
+fn first_version() -> u64 {
+    1
+}
+
+impl Form {
+    /// Every field, tab by tab and group by group.
+    pub fn fields(&self) -> impl Iterator<Item = &Field> {
+        self.tabs.iter().flat_map(|t| &t.groups).flat_map(|g| &g.fields)
+    }
+
+    /// The field `id`.
+    pub fn field(&self, id: &str) -> Option<&Field> {
+        self.fields().find(|f| f.id == id)
     }
 }
 
@@ -451,7 +471,7 @@ fn check_figure(f: &Figure) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use serde_json::json;
     use solidcraft_doc::extension::{ExtInput, FeatureGenerator, GenCtx, GeneratedBody, register_generator};
 
@@ -459,7 +479,7 @@ mod tests {
     use crate::Session;
     use crate::cmd::CommandSpec;
 
-    const EXT: &str = "test_forms";
+    pub(crate) const EXT: &str = "test_forms";
 
     /// A slab `w` wide and `n` × 10 mm long, 5 mm thick (thicker with `thick`).
     struct Slab;
@@ -526,7 +546,7 @@ mod tests {
     }
 
     /// The generators, commands, figure and forms, registered once for every test.
-    fn setup() {
+    pub(crate) fn setup() {
         let _ = register_generator(EXT, "slab", &SLAB);
         let _ = register_generator(EXT, "other", &SLAB);
         let _ = crate::extensions::register_commands(&COMMANDS);

@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 
 use serde_json::{Map, Value, json};
 use solidcraft_engine::doc::FeatureKind;
+use solidcraft_engine::extensions::presets::{self, Preset};
 use solidcraft_engine::extensions::{Field, FieldType, Form};
 
 use crate::SolveApp;
@@ -27,10 +28,16 @@ pub struct Sd {
     pub switch: BTreeMap<String, bool>,
     /// The edited feature's parameters, so the ones the form doesn't show keep their values.
     base: Map<String, Value>,
+    /// The packs of the form's kind (read when the dialog first draws, again after a change),
+    /// the one last picked, the name to save under, and what the last pack action did.
+    packs: Option<Vec<Preset>>,
+    pub pack: Option<usize>,
+    pub pack_name: String,
+    pub pack_note: Option<(String, bool)>,
 }
 
 fn fields(form: &Form) -> impl Iterator<Item = &Field> {
-    form.tabs.iter().flat_map(|t| &t.groups).flat_map(|g| &g.fields)
+    form.fields()
 }
 
 impl Sd {
@@ -53,7 +60,7 @@ impl Sd {
                 }
             }
         }
-        Sd { form, tab: 0, name: String::new(), text, choice, switch, base }
+        Sd { form, tab: 0, name: String::new(), text, choice, switch, base, packs: None, pack: None, pack_name: String::new(), pack_note: None }
     }
 
     /// The command's parameters: the edited feature's, overwritten by the form's fields.
@@ -108,6 +115,7 @@ pub fn rows(app: &mut SolveApp, ui: &mut egui::Ui, k: &mut Sd, editing: bool) ->
         enter |= r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         ui.end_row();
     }
+    pack_rows(app, ui, k);
     let form = k.form;
     // The focused field's figure (else the form's), with that field's groups lit.
     let focused = ui.ctx().memory(|m| m.focused());
@@ -151,6 +159,161 @@ pub fn rows(app: &mut SolveApp, ui: &mut egui::Ui, k: &mut Sd, editing: bool) ->
         }
     }
     enter
+}
+
+/// The pack rows: pick a saved pack (its values fill the fields), save the current values
+/// under a name, delete the picked pack, import another program's parameter file.
+fn pack_rows(app: &mut SolveApp, ui: &mut egui::Ui, k: &mut Sd) {
+    let t = Tokens::get();
+    if k.packs.is_none() {
+        k.packs = Some(presets::list(k.form).unwrap_or_else(|e| {
+            k.pack_note = Some((e.to_string(), true));
+            Vec::new()
+        }));
+    }
+    let names: Vec<String> = k.packs.iter().flatten().map(|p| p.name.clone()).collect();
+    row_label(ui, "ui.parameter_pack");
+    let mut picked = None;
+    let mut delete = false;
+    ui.horizontal(|ui| {
+        let empty = if names.is_empty() { "ui.pack_none" } else { "ui.pack_choose" };
+        let shown = k.pack.and_then(|i| names.get(i)).cloned().unwrap_or_else(|| crate::i18n::tr(empty).to_string());
+        let r = egui::ComboBox::from_id_salt(("extension_form_pack", k.form.command.as_str()))
+            .selected_text(shown)
+            .width(crate::dialogs::FIELD_W)
+            .show_ui(ui, |ui| {
+                for (i, name) in names.iter().enumerate() {
+                    let item = ui.selectable_label(k.pack == Some(i), name.as_str());
+                    crate::scenario::publish_handle(&format!("dialog:pack:{name}"), item.rect.center());
+                    if item.clicked() {
+                        picked = Some(i);
+                    }
+                }
+            });
+        crate::scenario::publish_handle("dialog:pack", r.response.rect.center());
+        let d = ui.add_enabled(k.pack.is_some(), egui::Button::new(crate::i18n::tr("ui.delete")));
+        crate::scenario::publish_handle("dialog:pack_delete", d.rect.center());
+        delete = d.clicked();
+    });
+    ui.end_row();
+    if let Some(i) = picked {
+        apply_pack(k, i);
+    }
+    if delete {
+        delete_pack(app, k);
+    }
+    row_label(ui, "");
+    ui.horizontal(|ui| {
+        let r = ui.add(
+            egui::TextEdit::singleline(&mut k.pack_name).hint_text(crate::i18n::tr("ui.pack_name")).desired_width(crate::dialogs::FIELD_W - 50.0),
+        );
+        crate::scenario::publish_handle("dialog:pack_name", r.rect.center());
+        let taken = names.iter().any(|n| n == k.pack_name.trim());
+        let label = crate::i18n::tr(if taken { "ui.replace" } else { "ui.save" });
+        let b = ui.add_enabled(!k.pack_name.trim().is_empty(), egui::Button::new(label));
+        crate::scenario::publish_handle("dialog:pack_save", b.rect.center());
+        if b.clicked() {
+            save_pack(app, k);
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if presets::importer(&k.form.ext).is_some() {
+            let b = ui.button(crate::i18n::tr("ui.import_ellipsis"));
+            crate::scenario::publish_handle("dialog:pack_import", b.rect.center());
+            if b.clicked() {
+                import_packs(app, k.form.command.clone());
+            }
+        }
+    });
+    ui.end_row();
+    if let Some((note, error)) = &k.pack_note {
+        row_label(ui, "");
+        ui.label(egui::RichText::new(note.as_str()).small().color(if *error { t.error } else { t.text_dim }));
+        ui.end_row();
+    }
+}
+
+/// Fill the fields from pack `i` (the fields it has; a pack saved by a newer form is refused).
+fn apply_pack(k: &mut Sd, i: usize) {
+    let Some(pack) = k.packs.as_ref().and_then(|p| p.get(i)).cloned() else { return };
+    k.pack = Some(i);
+    k.pack_name = pack.name.clone();
+    if pack.version > k.form.version {
+        k.pack_note = Some((crate::i18n::format("ui.pack_newer", &[("name", &pack.name)]), true));
+        return;
+    }
+    for f in fields(k.form) {
+        let Some(v) = pack.values.get(&f.id) else { continue };
+        match f.ty {
+            FieldType::Choice => {
+                if let Some(o) = v.as_str().and_then(|o| f.options.iter().position(|(id, _)| id == o)) {
+                    k.choice.insert(f.id.clone(), o);
+                }
+            }
+            FieldType::Switch => {
+                if let Some(on) = v.as_bool() {
+                    k.switch.insert(f.id.clone(), on);
+                }
+            }
+            _ => {
+                if let Some(text) = v.as_str().map(str::to_owned).or_else(|| v.as_number().map(|n| n.to_string())) {
+                    k.text.insert(f.id.clone(), text);
+                }
+            }
+        }
+    }
+    k.pack_note = Some((crate::i18n::format("ui.pack_applied", &[("name", &pack.name)]), false));
+}
+
+/// Save the fields' values as the pack named in the name field (replacing one of that name).
+fn save_pack(app: &mut SolveApp, k: &mut Sd) {
+    let name = k.pack_name.trim().to_owned();
+    let mut values = k.params(false).as_object().cloned().unwrap_or_default();
+    values.remove("name");
+    let r = app.run("preset.save", json!({"command": k.form.command, "name": name, "values": values}));
+    k.packs = presets::list(k.form).ok();
+    k.pack = k.packs.iter().flatten().position(|p| p.name == name);
+    k.pack_note = Some(match r {
+        Ok(_) => (crate::i18n::format("ui.pack_saved", &[("name", &name)]), false),
+        Err(e) => (e, true),
+    });
+}
+
+/// Delete the picked pack.
+fn delete_pack(app: &mut SolveApp, k: &mut Sd) {
+    let Some(name) = k.pack.and_then(|i| k.packs.as_ref()?.get(i)).map(|p| p.name.clone()) else { return };
+    let r = app.run("preset.delete", json!({"command": k.form.command, "name": name}));
+    k.packs = presets::list(k.form).ok();
+    k.pack = None;
+    k.pack_note = Some(match r {
+        Ok(_) => (crate::i18n::format("ui.pack_deleted", &[("name", &name)]), false),
+        Err(e) => (e, true),
+    });
+}
+
+/// Import another program's parameter file, picked by the user, with the extension's importer.
+#[cfg(not(target_arch = "wasm32"))]
+fn import_packs(app: &mut SolveApp, command: String) {
+    app.pick_open(move |app, path| {
+        let Some(path) = path else { return };
+        let r = app.run("preset.import", json!({"command": command, "path": path}));
+        let Some(crate::dialogs::Dialog { kind: Kind::Schema(k), .. }) = app.dialog.as_mut() else { return };
+        if k.form.command != command {
+            return;
+        }
+        k.packs = presets::list(k.form).ok();
+        k.pack_note = Some(match r {
+            Ok(v) => {
+                let kept = v["kept"].as_array().map_or(0, Vec::len);
+                let mut note = crate::i18n::format("ui.pack_imported", &[("count", &kept.to_string())]);
+                for n in v["notes"].as_array().into_iter().flatten().filter_map(Value::as_str).take(4) {
+                    note.push('\n');
+                    note.push_str(n);
+                }
+                (note, false)
+            }
+            Err(e) => (e, true),
+        });
+    });
 }
 
 /// The text edit of field `f`, by which the figure knows the focused field.
@@ -303,6 +466,14 @@ mod tests {
         }
     }
 
+    /// The packs folder of these tests: one for the process (`presets::set_dir` is global).
+    fn packs_dir() -> std::path::PathBuf {
+        static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+        let d = DIR.get_or_init(|| std::env::temp_dir().join(format!("solidcraft-ui-packs-{}", std::process::id()))).clone();
+        presets::set_dir(Some(d.clone()));
+        d
+    }
+
     /// Replace a field's text by typing, as a person does.
     fn type_into(h: &mut Harness, label: &str, text: &str) {
         h.step(&json!({"click": {"handle": format!("dialog:{label}")}})).unwrap();
@@ -327,6 +498,7 @@ mod tests {
     #[test]
     fn a_form_opens_from_the_toolbar_and_edits_its_feature_in_place() {
         setup();
+        packs_dir();
         let mut h = Harness::new();
         h.app.home.open = false;
         h.frames(2);
@@ -376,5 +548,39 @@ mod tests {
         let f = h.app.session.doc.find_feature("Second").unwrap();
         let FeatureKind::Extension { inputs, .. } = &f.kind else { panic!("extension feature") };
         assert_eq!(inputs.get("w"), Some("10 mm"));
+    }
+    #[test]
+    fn a_pack_keeps_the_fields_and_fills_them_again() {
+        setup();
+        let dir = packs_dir();
+        let mut h = Harness::new();
+        h.app.home.open = false;
+        h.frames(2);
+        h.step(&json!({"start": "test_ui_forms.plate"})).unwrap();
+        h.frames(2);
+        type_into(&mut h, "Width w", "37 mm");
+        type_into(&mut h, "pack_name", "UI pack");
+        h.frames(1);
+        h.step(&json!({"click": {"handle": "dialog:pack_save"}})).unwrap();
+        h.frames(2);
+        let form = solidcraft_engine::extensions::form("test_ui_forms.plate").unwrap();
+        let kept = presets::list(form).unwrap();
+        let pack = kept.iter().find(|p| p.name == "UI pack").unwrap();
+        assert_eq!(pack.values["w"], "37 mm");
+        assert!(pack.values.get("name").is_none(), "the feature's name is not a pack value");
+        // Another width, then the pack: its width comes back.
+        type_into(&mut h, "Width w", "12 mm");
+        h.frames(1);
+        h.step(&json!({"click": {"handle": "dialog:pack"}})).unwrap();
+        h.frames(2);
+        h.step(&json!({"click": {"handle": "dialog:pack:UI pack"}})).unwrap();
+        h.frames(2);
+        let Some(Kind::Schema(sd)) = h.app.dialog.as_ref().map(|d| &d.kind) else { panic!("no form dialog") };
+        assert_eq!(sd.text.get("w").map(String::as_str), Some("37 mm"));
+        h.step(&json!({"click": {"handle": "dialog:pack_delete"}})).unwrap();
+        h.frames(2);
+        assert!(presets::list(form).unwrap().iter().all(|p| p.name != "UI pack"));
+        assert!(h.app.session.doc.features.is_empty() && !h.app.session.is_dirty(), "packs are not the design's");
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
