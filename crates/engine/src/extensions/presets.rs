@@ -46,6 +46,15 @@ struct Store {
 /// Where the packs are kept, when not the default ([`set_dir`]).
 static DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
 
+/// One writer at a time: a save, delete or import reads the file, changes it and writes it back,
+/// and two at once would lose one's change.
+static WRITER: Mutex<()> = Mutex::new(());
+
+fn one_writer() -> std::sync::MutexGuard<'static, ()> {
+    // A writer that panicked left the file whole (writes are atomic): carry on.
+    WRITER.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// Keep the packs in `dir` (`None`: the default folder) from now on, in this process.
 pub fn set_dir(dir: Option<PathBuf>) {
     if let Ok(mut d) = DIR.lock() {
@@ -136,6 +145,11 @@ pub fn save(form: &Form, name: &str, values: Map<String, Value>) -> Result<bool>
 }
 
 pub fn save_in(dir: &Path, form: &Form, name: &str, values: Map<String, Value>) -> Result<bool> {
+    let _one = one_writer();
+    save_unlocked(dir, form, name, values)
+}
+
+fn save_unlocked(dir: &Path, form: &Form, name: &str, values: Map<String, Value>) -> Result<bool> {
     let name = check_name(name)?;
     check_values(form, &values)?;
     let mut s = load(dir, &form.ext)?;
@@ -164,6 +178,7 @@ pub fn delete(form: &Form, name: &str) -> Result<bool> {
 }
 
 pub fn delete_in(dir: &Path, form: &Form, name: &str) -> Result<bool> {
+    let _one = one_writer();
     let mut s = load(dir, &form.ext)?;
     let Some(packs) = s.kinds.get_mut(&form.kind) else { return Ok(false) };
     let before = packs.len();
@@ -253,6 +268,8 @@ pub fn import_in(dir: &Path, ext: &str, path: &str) -> Result<(Vec<(String, Stri
     let value: Value = serde_json::from_str(&text).map_err(|e| EngineError::Other(format!("{path} is not JSON: {e}")))?;
     let stem = Path::new(path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
     let Imported { packs, mut notes } = importer(&value, &stem).map_err(|e| EngineError::Other(format!("{path}: {e}")))?;
+    // The names taken and the packs saved, without another writer in between.
+    let _one = one_writer();
     let mut kept = Vec::new();
     for (kind, name, values) in packs {
         let Some(form) = form_for(ext, &kind) else {
@@ -265,7 +282,7 @@ pub fn import_in(dir: &Path, ext: &str, path: &str) -> Result<(Vec<(String, Stri
             .map(|i| if i == 1 { base.to_owned() } else { format!("{base} ({i})") })
             .find(|n| !taken.contains(n))
             .unwrap_or_default();
-        match save_in(dir, form, &unique, values) {
+        match save_unlocked(dir, form, &unique, values) {
             Ok(_) => kept.push((kind, unique)),
             Err(e) => notes.push(format!("{name}: {e}")),
         }
@@ -289,6 +306,27 @@ mod tests {
 
     fn values(v: Value) -> Map<String, Value> {
         v.as_object().cloned().unwrap_or_default()
+    }
+
+    #[test]
+    fn writers_at_once_lose_no_pack() {
+        setup();
+        let (d, f) = (tmp("writers"), form("test_forms.slab").unwrap());
+        std::thread::scope(|scope| {
+            for t in 0..8 {
+                let d = &d;
+                scope.spawn(move || {
+                    for i in 0..10 {
+                        assert!(save_in(d, f, &format!("t{t} p{i}"), values(json!({"w": "10 mm"}))).is_ok());
+                        if i % 2 == 1 {
+                            assert!(delete_in(d, f, &format!("t{t} p{i}")).unwrap(), "t{t} p{i} was saved");
+                        }
+                    }
+                });
+            }
+        });
+        assert_eq!(list_in(&d, f).unwrap().len(), 8 * 5);
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
