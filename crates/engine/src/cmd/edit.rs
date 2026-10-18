@@ -49,8 +49,9 @@ pub static COMMANDS: &[CommandSpec] = &[
     CommandSpec::new("timeline.reorder_many", "Reorder Features", reorder_many).icon("reorder").params(
         "features: [id|name], position: insertion slot in the current history; selected features keep their relative order; refused when a feature that worked would fail",
     ),
-    CommandSpec::new("timeline.redefine", "Edit Feature", redefine).icon("edit")
-        .params("feature: id|name, command: the feature's command id, params: its parameters (the feature is rebuilt in place)"),
+    CommandSpec::new("timeline.redefine", "Edit Feature", redefine).icon("edit").params(
+        "feature: id|name, command: the feature's command id, params: its parameters (the feature is rebuilt in place;          an extension feature keeps the values params leaves out)",
+    ),
     CommandSpec::new("timeline.dependents", "Feature Dependents", dependents).icon("graph")
         .noundo()
         .params("feature: id|name → features deleted with it, and features that would fail without it"),
@@ -1017,6 +1018,17 @@ fn redefine(s: &mut Session, p: &Value) -> Result<Value> {
         && let Some(parameters) = params.as_object_mut()
     {
         parameters.entry("convention").or_insert_with(|| json!(convention));
+    }
+    // An extension feature's command takes flat values: what the edit leaves out keeps its value.
+    if let FeatureKind::Extension { inputs, params: kept, .. } = &old.kind
+        && let Some(parameters) = params.as_object_mut()
+    {
+        for input in &inputs.0 {
+            parameters.entry(input.label.to_string()).or_insert_with(|| json!(input.expr));
+        }
+        for (k, v) in kept.as_object().into_iter().flatten() {
+            parameters.entry(k.clone()).or_insert_with(|| v.clone());
+        }
     }
     if !old.participants.is_empty()
         && let Some(parameters) = params.as_object_mut()

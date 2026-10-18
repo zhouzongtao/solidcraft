@@ -675,4 +675,14 @@ pub(crate) mod tests {
         s.execute("edit.undo", &json!({})).unwrap();
         assert!((volume(&s, "Deck-slab") - 20.0 * 20.0 * 5.0).abs() < 1e-6, "one undo takes the edit back");
     }
+    #[test]
+    fn a_redefine_that_names_one_value_keeps_the_others() {
+        setup();
+        let mut s = Session::default();
+        let r = s.execute("test_forms.slab", &json!({"name": "Part", "w": "30 mm", "n": "2", "thick": true})).unwrap();
+        let id = r["feature"].as_u64().unwrap();
+        assert!((volume(&s, "Part-slab") - 30.0 * 20.0 * 10.0).abs() < 1e-6);
+        s.execute("timeline.redefine", &json!({"feature": id, "command": "test_forms.slab", "params": {"n": "3"}})).unwrap();
+        assert!((volume(&s, "Part-slab") - 30.0 * 30.0 * 10.0).abs() < 1e-6, "w and thick kept, n changed");
+    }
 }
