@@ -302,15 +302,22 @@ pub fn app_bar(app: &mut SolveApp, ui: &mut egui::Ui) {
         // Keep the current header controls and product name when merging the new mark.
         let compact_actions = r.right() - left < 640.0;
         // Brand mark: the SolidCraft logo, drawn in code from the SVG's own coordinates
-        // (viewBox 357 x 412). Same 20 px height and centre as the old block.
+        // (viewBox 357 x 412). Same 20 px height and centre as the old block. A product built on
+        // SolidCraft draws its own (`extension_ui::register_mark`).
         {
             let c = pos2(left + 20.0, r.center().y);
-            crate::icons::glyphs::brand_mark(ui.painter(), c);
+            crate::extension_ui::brand_mark(ui.painter(), c);
         }
-        if !compact_actions {
-            ui.painter().text(pos2(left + 36.0, r.center().y), Align2::LEFT_CENTER, "SolidCraft", FontId::proportional(14.0), t.app_bar_text);
-        }
+        let brand = solidcraft_engine::geom::brand::get();
         let mut x = left + if compact_actions { 60.0 } else { 128.0 };
+        if !compact_actions {
+            let shown =
+                ui.painter().text(pos2(left + 36.0, r.center().y), Align2::LEFT_CENTER, brand.name, FontId::proportional(14.0), t.app_bar_text);
+            // A longer product name moves the menus along.
+            if !brand.is_solidcraft() {
+                x = x.max(shown.right() + 22.0);
+            }
+        }
         // While a file loads the design waits: no menus or commands from the bar.
         let idle = !app.file_load.busy();
         // The File menu: a text button (New, Open, Save, Save As, Export…). Its handle keeps the
@@ -440,7 +447,8 @@ pub fn app_bar(app: &mut SolveApp, ui: &mut egui::Ui) {
         ui.painter().text(
             pos2(r.right() - 12.0 - captions, r.center().y),
             Align2::RIGHT_CENTER,
-            format!("v{}", crate::update::current_version()),
+            // A product built on SolidCraft shows its own version (About names SolidCraft's).
+            format!("v{}", if brand.is_solidcraft() { crate::update::current_version() } else { brand.version }),
             FontId::proportional(11.0),
             Color32::from_rgb(160, 168, 182),
         );
@@ -609,12 +617,12 @@ pub fn save(app: &mut SolveApp) {
 }
 
 fn save_as(app: &mut SolveApp) {
-    save_as_with_extension(app, solidcraft_engine::io::DESIGN_EXT);
+    save_as_with_extension(app, solidcraft_engine::io::design_ext());
 }
 
 fn save_as_with_extension(app: &mut SolveApp, extension: &str) {
     let name = format!("{}.{extension}", app.session.doc.name);
-    app.pick_save(&name, &[solidcraft_engine::io::DESIGN_EXT, "json"], |app, path| {
+    app.pick_save(&name, &[solidcraft_engine::io::design_ext(), "json"], |app, path| {
         if let Some(path) = path {
             let _ = app.run("file.save_as", json!({"path": path}));
         }

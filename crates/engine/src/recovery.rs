@@ -37,11 +37,11 @@ pub fn default_dir() -> Option<PathBuf> {
     } else {
         env("XDG_DATA_HOME").or_else(|| env("HOME").map(|h| h.join(".local/share")))?
     };
-    let (dir, legacy) = dirs_under(&long_names(&root), cfg!(windows) || cfg!(target_os = "macos"));
+    let (dir, legacy) = dirs_under(solidcraft_geom::brand::get(), &long_names(&root), cfg!(windows) || cfg!(target_os = "macos"));
     // Compatibility shim (docs/compatibility.md): autosaves made before the rename (or, in the
     // Flatpak sandbox, under the old app id) are copied to the new folder on first launch; the
     // old folder is left as it was.
-    for old in solidcraft_io::legacy_flatpak_path(&dir).into_iter().chain([legacy]) {
+    for old in solidcraft_io::legacy_flatpak_path(&dir).into_iter().chain(legacy) {
         if let Err(e) = solidcraft_io::adopt_legacy_dir(&dir, &old) {
             log::warn!("recovery: could not copy {} to {}: {e}", old.display(), dir.display());
         }
@@ -52,23 +52,25 @@ pub fn default_dir() -> Option<PathBuf> {
 /// SolidCraft's per-user data folder (the recovery folder's parent unless
 /// `SOLIDCRAFT_RECOVERY_DIR` moves that): `%LOCALAPPDATA%\SolidCraft`,
 /// `~/Library/Application Support/SolidCraft`, or `$XDG_DATA_HOME/solidcraft`
-/// (`~/.local/share/solidcraft`).
+/// (`~/.local/share/solidcraft`). A product built on SolidCraft has its brand's folder there.
 pub fn data_dir() -> Option<PathBuf> {
     let env = |k: &str| std::env::var_os(k).filter(|d| !d.is_empty()).map(PathBuf::from);
+    let folder = solidcraft_geom::brand::get().folder_path(!(cfg!(windows) || cfg!(target_os = "macos")));
     if cfg!(windows) {
-        Some(env("LOCALAPPDATA")?.join("SolidCraft"))
+        Some(env("LOCALAPPDATA")?.join(folder))
     } else if cfg!(target_os = "macos") {
-        Some(env("HOME")?.join("Library/Application Support/SolidCraft"))
+        Some(env("HOME")?.join("Library/Application Support").join(folder))
     } else {
-        Some(env("XDG_DATA_HOME").or_else(|| env("HOME").map(|h| h.join(".local/share")))?.join("solidcraft"))
+        Some(env("XDG_DATA_HOME").or_else(|| env("HOME").map(|h| h.join(".local/share")))?.join(folder))
     }
 }
 
-/// The recovery folder under the per-user data `root`, and the folder earlier releases used.
-/// Windows and macOS name the app's folder in title case, other systems in lower case.
-fn dirs_under(root: &Path, title_case: bool) -> (PathBuf, PathBuf) {
-    let (name, legacy) = if title_case { ("SolidCraft", "SolveCraft") } else { ("solidcraft", "solvecraft") };
-    (root.join(name).join("recovery"), root.join(legacy).join("recovery"))
+/// The recovery folder under the per-user data `root`, and (SolidCraft's only) the folder
+/// earlier releases used. Windows and macOS name the app's folder in title case, other systems
+/// in lower case.
+fn dirs_under(brand: &solidcraft_geom::brand::Brand, root: &Path, title_case: bool) -> (PathBuf, Option<PathBuf>) {
+    let legacy = brand.is_solidcraft().then(|| root.join(if title_case { "SolveCraft" } else { "solvecraft" }).join("recovery"));
+    (root.join(brand.folder_path(!title_case)).join("recovery"), legacy)
 }
 
 /// What an entry's `<id>.json` holds.
@@ -272,10 +274,17 @@ mod tests {
 
     #[test]
     fn recovery_dirs_and_their_legacy_names() {
-        let (dir, legacy) = super::dirs_under(Path::new("/data"), false);
-        assert_eq!((dir.as_path(), legacy.as_path()), (Path::new("/data/solidcraft/recovery"), Path::new("/data/solvecraft/recovery")));
-        let (dir, legacy) = super::dirs_under(Path::new("/data"), true);
-        assert_eq!((dir.as_path(), legacy.as_path()), (Path::new("/data/SolidCraft/recovery"), Path::new("/data/SolveCraft/recovery")));
+        let sc = &solidcraft_geom::brand::SOLIDCRAFT;
+        let (dir, legacy) = super::dirs_under(sc, Path::new("/data"), false);
+        assert_eq!((dir.as_path(), legacy.as_deref()), (Path::new("/data/solidcraft/recovery"), Some(Path::new("/data/solvecraft/recovery"))));
+        let (dir, legacy) = super::dirs_under(sc, Path::new("/data"), true);
+        assert_eq!((dir.as_path(), legacy.as_deref()), (Path::new("/data/SolidCraft/recovery"), Some(Path::new("/data/SolveCraft/recovery"))));
+        // A product built on SolidCraft: its own folder, nothing of SolidCraft's adopted.
+        let product = solidcraft_geom::brand::Brand { app_id: "ai.tonghao.rebar3d", folder: "Tonghao/Rebar3D", ..*sc };
+        let (dir, legacy) = super::dirs_under(&product, Path::new("/data"), false);
+        assert_eq!((dir.as_path(), legacy), (Path::new("/data/tonghao/rebar3d/recovery"), None));
+        let (dir, _) = super::dirs_under(&product, Path::new("/data"), true);
+        assert_eq!(dir.as_path(), Path::new("/data/Tonghao/Rebar3D/recovery"));
     }
 
     use super::*;

@@ -437,13 +437,14 @@ pub fn toolbar_button_shown(app: &SolveApp) -> bool {
 /// Whether a permission question is about one of SolidCraft's own tools (which SolidCraft's own
 /// gate checks): the agents name MCP tools after their server.
 fn solidcraft_tool(title: &str) -> bool {
-    title.to_ascii_lowercase().contains("solidcraft")
+    title.to_ascii_lowercase().contains(&solidcraft_engine::geom::brand::get().app.to_ascii_lowercase())
 }
 
 /// `solidcraft-cli` next to this program, else on the search path.
 #[cfg(not(target_arch = "wasm32"))]
 fn find_cli() -> Option<std::path::PathBuf> {
-    let name = if cfg!(windows) { "solidcraft-cli.exe" } else { "solidcraft-cli" };
+    let cli = solidcraft_engine::geom::brand::get().cli;
+    let name = format!("{cli}{}", std::env::consts::EXE_SUFFIX);
     if let Some(p) = solidcraft_engine::geom::env::var("CLI").map(std::path::PathBuf::from).filter(|p| p.is_file()) {
         return Some(p);
     }
@@ -451,7 +452,7 @@ fn find_cli() -> Option<std::path::PathBuf> {
         .ok()
         .and_then(|e| e.parent().map(|d| d.join(name)))
         .filter(|p| p.is_file())
-        .or_else(|| discover::find_in("solidcraft-cli", &discover::search_dirs()))
+        .or_else(|| discover::find_in(cli, &discover::search_dirs()))
 }
 
 /// The agent's working folder: an empty folder of SolidCraft's own, so an agent's own file tools

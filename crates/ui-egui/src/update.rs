@@ -554,7 +554,10 @@ pub fn offered(app: &SolveApp) -> Option<&Release> {
 
 /// Checks may run here: a release build with the host's HTTP client, or a test feed.
 pub fn available(app: &mut SolveApp) -> bool {
-    !app.updater.off && (app.updater.feed.is_some() || (app.services.http_get.is_some() && app.updater.kind().checks()))
+    // A product built on SolidCraft never takes SolidCraft's releases for its own.
+    solidcraft_engine::geom::brand::is_default()
+        && !app.updater.off
+        && (app.updater.feed.is_some() || (app.services.http_get.is_some() && app.updater.kind().checks()))
 }
 
 /// Per frame: the first frame of each launch starts an automatic check, the open app checks
@@ -933,6 +936,9 @@ pub fn show(app: &mut SolveApp, ctx: &egui::Context) {
 
 /// Preferences ▸ General: the automatic check and Check now.
 pub fn prefs_rows(app: &mut SolveApp, ui: &mut egui::Ui, t: &Tokens) {
+    if !solidcraft_engine::geom::brand::is_default() {
+        return;
+    }
     let can = available(app);
     let kind = app.updater.kind().clone();
     ui.label(crate::i18n::tr("update.prefs_label"));

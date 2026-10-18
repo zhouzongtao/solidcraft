@@ -72,7 +72,7 @@ pub fn default_dir() -> Option<PathBuf> {
     if cfg!(test) {
         return Some(solidcraft_io::vfs::temp_dir().join(format!("solidcraft-test-presets-{}", std::process::id())));
     }
-    if let Some(d) = std::env::var_os("SOLIDCRAFT_PRESETS_DIR").filter(|d| !d.is_empty()) {
+    if let Some(d) = solidcraft_geom::env::var_os("PRESETS_DIR").filter(|d| !d.is_empty()) {
         return Some(PathBuf::from(d));
     }
     crate::recovery::default_dir().and_then(|d| d.parent().map(|p| p.join("presets")))

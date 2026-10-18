@@ -15,6 +15,27 @@ pub use egui;
 /// Draws an icon in `rect` with the ink, fill and accent colours it is given.
 pub type IconFn = fn(&egui::Painter, egui::Rect, egui::Color32, egui::Color32, egui::Color32);
 
+/// Draws a product's mark in the app bar, 20 px tall, centred on the point.
+pub type MarkFn = fn(&egui::Painter, egui::Pos2);
+
+static MARK: std::sync::OnceLock<MarkFn> = std::sync::OnceLock::new();
+
+/// The app bar's mark for a product built on SolidCraft (SolidCraft's logo is SolidCraft's
+/// alone). Refused once one is registered.
+pub fn register_mark(draw: MarkFn) -> Result<(), String> {
+    MARK.set(draw).map_err(|_| "the app bar mark may be registered once".to_string())
+}
+
+/// The app bar's mark: the registered one, else SolidCraft's logo for SolidCraft itself and
+/// none for a product that registered none.
+pub(crate) fn brand_mark(painter: &egui::Painter, centre: egui::Pos2) {
+    if let Some(draw) = MARK.get() {
+        draw(painter, centre);
+    } else if solidcraft_engine::geom::brand::is_default() {
+        crate::icons::glyphs::brand_mark(painter, centre);
+    }
+}
+
 struct Tab {
     name: &'static str,
     panels: &'static [&'static str],

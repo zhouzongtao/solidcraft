@@ -805,14 +805,14 @@ fn unclean_exit(dir: &Path, build: &Build, journal: &Path) {
                 frames.push(format!("on thread {t}"));
             }
             (
-                format!("SolidCraft {was} (started {when}) crashed with {name} ({code}) in {at} {during}"),
+                format!("{} {was} (started {when}) crashed with {name} ({code}) in {at} {during}", solidcraft_geom::brand::get().name),
                 format!("native exception in {at}"),
                 format!("{code} {short} {}", starting.as_ref().map_or(doing.unwrap_or("idle"), |(p, _)| p.as_str())),
                 frames,
             )
         }
         None => (
-            format!("SolidCraft {was} (started {when}) ended without a clean exit {during}"),
+            format!("{} {was} (started {when}) ended without a clean exit {during}", solidcraft_geom::brand::get().name),
             match (&starting, doing) {
                 (Some((p, _)), _) => format!("unclean exit during startup: {p}"),
                 (None, c) => format!("unclean exit in {}", c.unwrap_or("(between commands)")),

@@ -82,13 +82,19 @@ fn listen(port: u16, token: String, tx: Sender<ControlRequest>, ctx: egui::Conte
                 }
             }
             Err(e) => eprintln!(
-                "solidcraft: control server listening on 127.0.0.1:{port}, but its token file {} could not be written ({e}); \
-                 clients need SOLIDCRAFT_CONTROL_TOKEN",
-                path.display()
+                "{}: control server listening on 127.0.0.1:{port}, but its token file {} could not be written ({e}); \
+                 clients need {}",
+                solidcraft_engine::geom::brand::get().app,
+                path.display(),
+                solidcraft_engine::geom::env::name("CONTROL_TOKEN")
             ),
         },
         None => {
-            eprintln!("solidcraft: control server listening on 127.0.0.1:{port}; no data folder for its token, clients need SOLIDCRAFT_CONTROL_TOKEN")
+            eprintln!(
+                "{}: control server listening on 127.0.0.1:{port}; no data folder for its token, clients need {}",
+                solidcraft_engine::geom::brand::get().app,
+                solidcraft_engine::geom::env::name("CONTROL_TOKEN")
+            )
         }
     }
     let token = std::sync::Arc::new(token);

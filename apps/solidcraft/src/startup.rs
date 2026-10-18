@@ -13,10 +13,16 @@
 
 use std::path::{Path, PathBuf};
 
-/// The environment variable that starts safe mode (any value but `0` or empty).
-pub const SAFE_MODE_ENV: &str = "SOLIDCRAFT_SAFE_MODE";
-/// `SOLIDCRAFT_RENDERER=cpu` picks the software renderer (WARP, lavapipe, llvmpipe).
-pub const RENDERER_ENV: &str = "SOLIDCRAFT_RENDERER";
+/// The environment variable that starts safe mode (any value but `0` or empty):
+/// `SOLIDCRAFT_SAFE_MODE`, under the brand's prefix.
+pub fn safe_mode_env() -> String {
+    solidcraft_engine::geom::env::name("SAFE_MODE")
+}
+/// `SOLIDCRAFT_RENDERER=cpu` (the brand's prefix) picks the software renderer (WARP, lavapipe,
+/// llvmpipe).
+pub fn renderer_env() -> String {
+    solidcraft_engine::geom::env::name("RENDERER")
+}
 /// Consecutive launches that died before the window was up, after which safe mode starts.
 pub const FAILED_STARTS_FOR_SAFE_MODE: u32 = 2;
 const MARKER: &str = "starting";
@@ -191,15 +197,18 @@ pub fn has_hardware_adapter(backends: eframe::wgpu::Backends) -> bool {
 
 /// The message shown when no window could be opened at all.
 pub fn no_window_message(error: &str, settings: Option<&Path>) -> String {
-    let folder = settings.map(|d| d.display().to_string()).unwrap_or_else(|| "the SolidCraft settings folder".into());
+    let brand = solidcraft_engine::geom::brand::get();
+    let folder = settings.map(|d| d.display().to_string()).unwrap_or_else(|| format!("the {} settings folder", brand.name));
+    let (name, app) = (brand.name, brand.app);
+    let docs = brand.docs_url.map(|u| format!("More: {u}guide/troubleshooting.html")).unwrap_or_default();
     format!(
-        "SolidCraft could not open its window.\n\n{error}\n\n\
+        "{name} could not open its window.\n\n{error}\n\n\
          The software renderer was tried too. Things to try:\n\
          - Install or update the graphics driver (on Windows, from the GPU maker's site rather than Windows Update).\n\
          - Over Remote Desktop or in a virtual machine, enable 3D acceleration or run it on the machine itself.\n\
-         - Start it once with `solidcraft --safe-mode`.\n\
+         - Start it once with `{app} --safe-mode`.\n\
          - Rename the settings folder: {folder}\n\n\
-         More: https://docs.solidcraft.io/guide/troubleshooting.html"
+         {docs}"
     )
 }
 

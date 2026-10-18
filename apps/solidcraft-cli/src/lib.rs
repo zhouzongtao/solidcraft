@@ -120,7 +120,12 @@ pub fn run() -> ExitCode {
         // A ~1,300-body design built command by command, as an agent builds one over MCP.
         Some("bench-agent") => bench_agent::run(&args[1..]),
         Some("--version" | "-V") => {
-            println!("solidcraft-cli {}", env!("CARGO_PKG_VERSION"));
+            let brand = solidcraft_engine::geom::brand::get();
+            if brand.is_solidcraft() {
+                println!("solidcraft-cli {}", env!("CARGO_PKG_VERSION"));
+            } else {
+                println!("{} {} (SolidCraft {})", brand.cli, brand.version, env!("CARGO_PKG_VERSION"));
+            }
             Ok(())
         }
         _ => Err(USAGE.to_string()),
@@ -128,10 +133,19 @@ pub fn run() -> ExitCode {
     match r {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("error: {e}");
+            eprintln!("error: {}", branded_usage(e));
             ExitCode::FAILURE
         }
     }
+}
+
+/// A usage text names the program and its design files as the brand does.
+fn branded_usage(text: String) -> String {
+    let brand = solidcraft_engine::geom::brand::get();
+    if brand.is_solidcraft() || !text.starts_with("usage:") {
+        return text;
+    }
+    text.replace("solidcraft-cli", brand.cli).replace(".solidcraft", &format!(".{}", brand.design_ext))
 }
 
 fn pretty(v: &Value) -> String {
@@ -465,7 +479,13 @@ fn cmd_icon(args: &[String]) -> Result<(), String> {
 }
 
 fn icon_png(size: usize) -> Result<Vec<u8>, String> {
-    solidcraft_engine::render::png(size, size, app_icon::rgba(size)?).ok_or_else(|| "icon: PNG encoding failed".to_string())
+    let brand = solidcraft_engine::geom::brand::get();
+    let rgba = match brand.icon {
+        Some(draw) => draw(size)?,
+        None if brand.is_solidcraft() => app_icon::rgba(size)?,
+        None => return Err(format!("icon: {} has no app icon", brand.name)),
+    };
+    solidcraft_engine::render::png(size, size, rgba).ok_or_else(|| "icon: PNG encoding failed".to_string())
 }
 
 /// A Windows icon file holding PNG images (Vista and later read these).

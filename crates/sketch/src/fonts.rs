@@ -370,7 +370,7 @@ fn home() -> Option<PathBuf> {
 
 /// The folders searched for installed fonts, in order.
 pub fn font_dirs() -> Vec<PathBuf> {
-    let mut dirs: Vec<PathBuf> = std::env::var_os("SOLIDCRAFT_FONT_DIRS").map(|v| std::env::split_paths(&v).collect()).unwrap_or_default();
+    let mut dirs: Vec<PathBuf> = solidcraft_geom::env::var_os("FONT_DIRS").map(|v| std::env::split_paths(&v).collect()).unwrap_or_default();
     let env = |k: &str| std::env::var_os(k).map(PathBuf::from);
     if cfg!(windows) {
         dirs.push(env("WINDIR").or_else(|| env("SystemRoot")).unwrap_or_else(|| PathBuf::from("C:\\Windows")).join("Fonts"));

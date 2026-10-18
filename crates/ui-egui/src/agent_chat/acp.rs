@@ -40,7 +40,7 @@ pub fn initialize_params(version: &str) -> Value {
             "auth": {"terminal": true},
             "_meta": {"terminal-auth": true},
         },
-        "clientInfo": {"name": "solidcraft", "title": "SolidCraft", "version": version},
+        "clientInfo": {"name": solidcraft_engine::geom::brand::get().app, "title": solidcraft_engine::geom::brand::get().name, "version": version},
     })
 }
 
@@ -57,7 +57,7 @@ pub struct McpBridge {
 impl McpBridge {
     pub fn to_json(&self) -> Value {
         json!({
-            "name": "solidcraft",
+            "name": solidcraft_engine::geom::brand::get().app,
             "command": self.cli.to_string_lossy(),
             "args": ["mcp", "--connect", format!("127.0.0.1:{}", self.port)],
             "env": [],

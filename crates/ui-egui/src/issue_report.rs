@@ -10,7 +10,7 @@ use crate::{SolveApp, dialogs, help};
 
 const MAX_BODY: usize = 24_000;
 const MAX_IMAGE_PIXELS: usize = 16_000_000;
-const ISSUE_URL: &str = "https://github.com/bherbruck/solidcraft/issues/new";
+pub(crate) const ISSUE_URL: &str = "https://github.com/bherbruck/solidcraft/issues/new";
 
 thread_local! {
     static CAD_INPUT_BLOCKED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -301,6 +301,8 @@ pub fn crash_draft(report: &serde_json::Value) -> Draft {
         Some("unclean_exit") => "SolidCraft closed unexpectedly (abort, stack overflow, a crash in a graphics driver or the process was killed)",
         _ => "SolidCraft hit an internal error",
     };
+    let brand = solidcraft_engine::geom::brand::get();
+    let what = what.replace("SolidCraft", brand.name);
     let command = report.get("command").and_then(|c| c.get("command")).and_then(serde_json::Value::as_str);
     let frames: Vec<&str> =
         report.get("backtrace").and_then(serde_json::Value::as_array).into_iter().flatten().filter_map(serde_json::Value::as_str).take(25).collect();
@@ -336,7 +338,8 @@ pub fn crash_draft(report: &serde_json::Value) -> Draft {
         },
         s("id"),
         block(&format!(
-            "SolidCraft {} ({}, built {})\nOS: {} {}\n{}",
+            "{} {} ({}, built {})\nOS: {} {}\n{}",
+            brand.name,
             field(app, "version"),
             field(app, "commit"),
             field(app, "built"),
@@ -351,6 +354,7 @@ pub fn crash_draft(report: &serde_json::Value) -> Draft {
     }
     let mut title = format!("Crash: {}", s("message").lines().next().unwrap_or_default());
     truncate(&mut title, 160);
+    let body = body.replace("`solidcraft-cli crashes replay", &format!("`{} crashes replay", brand.cli));
     Draft { title, body, image: None, texture: None, note: String::new(), source_signature: 0 }
 }
 
@@ -381,7 +385,8 @@ fn encode(value: &str) -> String {
 /// Long drafts stay local and can be copied into the browser editor; never discard them.
 pub fn draft_url(title: &str, body: &str) -> (String, bool) {
     let title = limited(title, 160);
-    let base = format!("{ISSUE_URL}?title={}", encode(&title));
+    let issues = solidcraft_engine::geom::brand::get().issues_url.unwrap_or(ISSUE_URL);
+    let base = format!("{issues}?title={}", encode(&title));
     if body.len() <= MAX_BODY {
         let url = format!("{base}&body={}", encode(body));
         if url.len() <= 2000 {
@@ -584,28 +589,35 @@ pub fn show(app: &mut SolveApp, ctx: &egui::Context) {
                 }
             });
             ui.separator();
-            ui.label(RichText::new(crate::i18n::tr_label("Send your report on GitHub")).strong());
+            // A product built on SolidCraft without an issue tracker: the report is copied and sent.
+            let filed = solidcraft_engine::geom::brand::get().issues_url.is_some();
+            ui.label(RichText::new(crate::i18n::tr_label(if filed { "Send your report on GitHub" } else { "Send your report" })).strong());
             let (url, copy_needed) = draft_url(&draft.title, &draft.body);
-            ui.add(
-                egui::Label::new(crate::i18n::tr_label(if copy_needed {
-                    "1. Open GitHub draft below, then paste the report copied to your clipboard."
-                } else {
-                    "1. Open GitHub draft below. Your title and report will be filled in."
-                }))
-                .wrap(),
-            );
-            ui.add(egui::Label::new(crate::i18n::tr_label("2. Attach your screenshot: copy and paste it, or save and upload the PNG.")).wrap());
-            ui.add(egui::Label::new(crate::i18n::tr_label("3. Click Submit new issue on GitHub to send your report.")).wrap());
+            if filed {
+                ui.add(
+                    egui::Label::new(crate::i18n::tr_label(if copy_needed {
+                        "1. Open GitHub draft below, then paste the report copied to your clipboard."
+                    } else {
+                        "1. Open GitHub draft below. Your title and report will be filled in."
+                    }))
+                    .wrap(),
+                );
+                ui.add(egui::Label::new(crate::i18n::tr_label("2. Attach your screenshot: copy and paste it, or save and upload the PNG.")).wrap());
+                ui.add(egui::Label::new(crate::i18n::tr_label("3. Click Submit new issue on GitHub to send your report.")).wrap());
+            } else {
+                ui.add(egui::Label::new(crate::i18n::tr_label("Copy the report and send it, with the screenshot, to your support contact.")).wrap());
+            }
             ui.horizontal_wrapped(|ui| {
                 let t = crate::theme::Tokens::get();
-                if crate::frame::add_outlined(
-                    ui,
-                    egui::Button::new(RichText::new(crate::i18n::tr_label("Open GitHub draft")).strong().color(t.text))
-                        .fill(t.accent_soft)
-                        .stroke(egui::Stroke::new(1.0, t.accent)),
-                    1.0,
-                )
-                .clicked()
+                if filed
+                    && crate::frame::add_outlined(
+                        ui,
+                        egui::Button::new(RichText::new(crate::i18n::tr_label("Open GitHub draft")).strong().color(t.text))
+                            .fill(t.accent_soft)
+                            .stroke(egui::Stroke::new(1.0, t.accent)),
+                        1.0,
+                    )
+                    .clicked()
                 {
                     if copy_needed {
                         ctx.copy_text(draft.body.clone());

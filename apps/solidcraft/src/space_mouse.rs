@@ -362,7 +362,7 @@ fn reader(ctx: Context, shared: Arc<Mutex<Reading>>) {
 fn start_driver_client(ctx: &Context, shared: &Arc<Mutex<Reading>>) {
     use solidcraft_3dx_client::Event;
     let (ctx, shared) = (ctx.clone(), Arc::clone(shared));
-    let started = solidcraft_3dx_client::start("SolidCraft", move |event| match event {
+    let started = solidcraft_3dx_client::start(solidcraft_engine::geom::brand::get().name, move |event| match event {
         Event::DeviceAdded => DRIVER_CONNECTED.store(true, Ordering::Relaxed),
         Event::DeviceRemoved => {
             DRIVER_CONNECTED.store(false, Ordering::Relaxed);

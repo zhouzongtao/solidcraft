@@ -38,7 +38,7 @@ pub(crate) type Refined = Option<(Arc<TessPlan>, Arc<Mesh>)>;
 /// pictures and frame times with and without it).
 pub(crate) fn enabled() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var("SOLIDCRAFT_DISPLAY_REFINE").map_or(true, |v| v != "0"))
+    *ON.get_or_init(|| solidcraft_engine::geom::env::var("DISPLAY_REFINE").is_none_or(|v| v != "0"))
 }
 
 /// A body's identity here: the address of its reference mesh, which is shared by every copy of

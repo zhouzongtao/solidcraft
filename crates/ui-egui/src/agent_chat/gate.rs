@@ -82,7 +82,10 @@ fn looks_like_file(s: &str) -> bool {
     if s.contains('/') || s.contains('\\') || s.starts_with('~') || s.starts_with('.') {
         return true;
     }
-    s.rsplit_once('.').is_some_and(|(stem, ext)| !stem.is_empty() && FILE_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()))
+    s.rsplit_once('.').is_some_and(|(stem, ext)| {
+        let ext = ext.to_ascii_lowercase();
+        !stem.is_empty() && (FILE_EXTENSIONS.contains(&ext.as_str()) || ext == solidcraft_engine::io::design_ext())
+    })
 }
 
 /// The first file or folder a request's parameters name, for the question and the decision.

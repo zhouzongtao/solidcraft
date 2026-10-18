@@ -22,13 +22,26 @@ impl Catalog {
 
     fn messages(&'static self) -> &'static Messages {
         self.messages.get_or_init(|| match serde_json::from_str(self.source) {
-            Ok(messages) => messages,
+            Ok(messages) => rebrand(messages, solidcraft_engine::geom::brand::get()),
             Err(error) => {
                 log::error!("invalid embedded {} message catalog: {error}", self.id);
                 Messages::new()
             }
         })
     }
+}
+
+/// A product built on SolidCraft says its own name (and its command line's) in every message.
+/// A message that has to name SolidCraft takes it as an argument (`{base}`).
+fn rebrand(mut messages: Messages, brand: &solidcraft_engine::geom::brand::Brand) -> Messages {
+    if !brand.is_solidcraft() {
+        for text in messages.values_mut() {
+            if text.contains("SolidCraft") || text.contains("solidcraft-cli") {
+                *text = text.replace("solidcraft-cli", brand.cli).replace("SolidCraft", brand.name);
+            }
+        }
+    }
+    messages
 }
 
 static ENGLISH: Catalog = Catalog::new("en", "English", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/en.json")));
@@ -659,5 +672,29 @@ mod tests {
             assert_eq!(tr("ui.preferences"), "環境設定");
         }
         assert_eq!(tr("ui.preferences"), "Preferences");
+    }
+
+    #[test]
+    fn a_product_says_its_own_name() {
+        let sc = solidcraft_engine::geom::brand::SOLIDCRAFT;
+        let product = solidcraft_engine::geom::brand::Brand { name: "Tonghao Rebar3D", cli: "rebar3d-cli", app_id: "ai.tonghao.rebar3d", ..sc };
+        let messages = || -> Messages {
+            [("a", "About SolidCraft"), ("b", "solidcraft-cli was not found"), ("c", "Built on {base} {version}"), ("d", "Fillet")]
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let m = rebrand(messages(), &product);
+        assert_eq!(
+            (m["a"].as_str(), m["b"].as_str(), m["c"].as_str(), m["d"].as_str()),
+            ("About Tonghao Rebar3D", "rebar3d-cli was not found", "Built on {base} {version}", "Fillet")
+        );
+        assert_eq!(rebrand(messages(), &sc), messages(), "SolidCraft's own messages are as written");
+        assert_eq!(
+            format("about.based_on", &[("base", "SolidCraft"), ("version", "0.15.0"), ("commit", "abc"), ("built", "2026-10-18")])
+                .matches("SolidCraft")
+                .count(),
+            1
+        );
     }
 }

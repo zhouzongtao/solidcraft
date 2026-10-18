@@ -126,6 +126,11 @@ fn services(cc: &eframe::CreationContext<'_>) -> Services {
                 let both: Vec<String> = first.iter().flat_map(|e| [e.to_lowercase(), e.to_uppercase()]).collect();
                 dialog = dialog.add_filter(label, &both);
             }
+            // A product built on SolidCraft opens on its own designs (and still reads SolidCraft's).
+            let brand = solidcraft_engine::geom::brand::get();
+            if !brand.is_solidcraft() {
+                dialog = dialog.add_filter(format!("{} design", brand.name), &[brand.design_ext, "json"]);
+            }
             let future = dialog
                 .add_filter(
                     "Designs, CAD files and meshes",
@@ -175,11 +180,13 @@ fn services(cc: &eframe::CreationContext<'_>) -> Services {
         })),
         pick_save: Some(Box::new(move |name: &str, exts: &[&str]| {
             let dialog = parent.clone().set_file_name(name);
-            let dialog = if exts == [io::DESIGN_EXT, "json"] {
+            let brand = solidcraft_engine::geom::brand::get();
+            let container = format!("{} container", brand.name);
+            let dialog = if exts == [brand.design_ext, "json"] {
                 if name.ends_with(".json") {
-                    dialog.add_filter("Plain JSON design", &["json"]).add_filter("SolidCraft container", &[io::DESIGN_EXT])
+                    dialog.add_filter("Plain JSON design", &["json"]).add_filter(&container, &[brand.design_ext])
                 } else {
-                    dialog.add_filter("SolidCraft container", &[io::DESIGN_EXT]).add_filter("Plain JSON design", &["json"])
+                    dialog.add_filter(&container, &[brand.design_ext]).add_filter("Plain JSON design", &["json"])
                 }
             } else {
                 dialog.add_filter("File", exts)
@@ -292,7 +299,7 @@ struct Keychain;
 
 impl Keychain {
     fn entry(id: &str) -> Result<keyring::Entry, String> {
-        keyring::Entry::new("SolidCraft agent chat", id).map_err(|e| e.to_string())
+        keyring::Entry::new(&format!("{} agent chat", solidcraft_engine::geom::brand::get().name), id).map_err(|e| e.to_string())
     }
 }
 
@@ -354,7 +361,8 @@ fn http_call(url: &str, timeout: std::time::Duration) -> Result<ureq::http::Resp
 
 /// The per-user settings folder: eframe's storage (`app.ron`) and the anti-aliasing preference.
 fn settings_dir() -> Option<std::path::PathBuf> {
-    eframe::storage_dir("SolidCraft")
+    let folder = solidcraft_engine::geom::brand::get().folder.replace('/', std::path::MAIN_SEPARATOR_STR);
+    eframe::storage_dir(&folder)
 }
 
 /// The anti-aliasing preference, kept next to eframe's storage (it is needed before the
@@ -370,6 +378,10 @@ fn graphics_path() -> Option<std::path::PathBuf> {
 /// old app id's `~/.var/app` folder; that copy comes first, as it is the newest. The old folders
 /// are never changed.
 fn adopt_legacy_settings() {
+    // A product built on SolidCraft starts with its own settings, never SolidCraft's.
+    if !solidcraft_engine::geom::brand::is_default() {
+        return;
+    }
     let (Some(current), Some(legacy)) = (settings_dir(), eframe::storage_dir("SolveCraft")) else { return };
     let legacy_eframe = eframe::storage_dir(solidcraft_engine::io::LEGACY_APP_ID);
     let old_flatpak = solidcraft_engine::io::legacy_flatpak_path(&current);
@@ -436,10 +448,9 @@ fn app_viewport() -> Result<egui::ViewportBuilder, eframe::Error> {
     #[cfg(target_os = "macos")]
     let icon = egui::IconData::default();
     #[cfg(not(target_os = "macos"))]
-    let icon =
-        egui::IconData { rgba: app_icon::rgba(64).map_err(|e| eframe::Error::AppCreation(std::io::Error::other(e).into()))?, width: 64, height: 64 };
+    let icon = window_icon(64).map_err(|e| eframe::Error::AppCreation(std::io::Error::other(e).into()))?;
     Ok(egui::ViewportBuilder::default()
-        .with_title("SolidCraft")
+        .with_title(solidcraft_engine::geom::brand::get().name)
         .with_icon(icon)
         .with_inner_size([1600.0, 1000.0])
         .with_min_inner_size([960.0, 600.0])
@@ -448,16 +459,27 @@ fn app_viewport() -> Result<egui::ViewportBuilder, eframe::Error> {
         .with_fullsize_content_view(true)
         .with_titlebar_shown(false)
         .with_title_shown(false)
-        .with_app_id(APP_ID))
+        .with_app_id(solidcraft_engine::geom::brand::get().app_id))
 }
 
-/// The window's app id: it names the desktop entry, so it is the packages' reverse-DNS id.
-const APP_ID: &str = solidcraft_engine::io::APP_ID;
+/// The window's icon: the brand's, else SolidCraft's own mark for SolidCraft itself (a product
+/// built on SolidCraft that draws none has none).
+#[cfg(not(target_os = "macos"))]
+fn window_icon(size: usize) -> Result<egui::IconData, String> {
+    let brand = solidcraft_engine::geom::brand::get();
+    let rgba = match brand.icon {
+        Some(draw) => draw(size)?,
+        None if brand.is_solidcraft() => app_icon::rgba(size)?,
+        None => return Ok(egui::IconData::default()),
+    };
+    let side = u32::try_from(size).map_err(|_| "icon size")?;
+    Ok(egui::IconData { rgba, width: side, height: side })
+}
 
 /// Run the desktop app with the process's arguments (see the module doc), until its window closes.
 pub fn run() -> eframe::Result {
     adopt_legacy_settings();
-    let mut safe_mode = startup::env_on(std::env::var(startup::SAFE_MODE_ENV).ok().as_deref());
+    let mut safe_mode = startup::env_on(std::env::var(startup::safe_mode_env()).ok().as_deref());
     let mut control_port: Option<u16> = solidcraft_engine::geom::env::var("CONTROL_PORT").and_then(|p| p.parse().ok());
     let mut files = Vec::new();
     let mut sample = false;
@@ -504,7 +526,7 @@ pub fn run() -> eframe::Result {
         safe_mode = true;
         notes.push(format!("The last {failed_starts} launches stopped before the window opened, so this one is in safe mode."));
     }
-    let cpu_renderer = safe_mode || startup::cpu_renderer_env(std::env::var(startup::RENDERER_ENV).ok().as_deref());
+    let cpu_renderer = safe_mode || startup::cpu_renderer_env(std::env::var(startup::renderer_env()).ok().as_deref());
     if safe_mode {
         notes.push("Safe mode: default settings (yours are kept for the next normal start), no recovery offer, software rendering.".into());
     }
@@ -515,7 +537,7 @@ pub fn run() -> eframe::Result {
     let crashed = solidcraft_engine::crash::default_dir()
         .map(|dir| {
             let build = solidcraft_engine::crash::Build {
-                version: solidcraft_ui_egui::help::VERSION,
+                version: solidcraft_engine::geom::brand::get().version,
                 commit: solidcraft_ui_egui::help::COMMIT,
                 built: solidcraft_ui_egui::help::BUILD_DATE,
             };
@@ -567,7 +589,7 @@ pub fn run() -> eframe::Result {
     let created_in_app = created.clone();
     let starting = settings.clone();
     let result = eframe::run_native(
-        "SolidCraft",
+        solidcraft_engine::geom::brand::get().name,
         options,
         Box::new(move |cc| {
             created_in_app.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -716,8 +738,9 @@ fn no_window(error: eframe::Error, tried_cpu: bool, settings: Option<&std::path:
     log::error!("the window could not open: {error}");
     eprintln!("SolidCraft: the window could not open: {error}");
     if !tried_cpu && let Ok(exe) = std::env::current_exe() {
-        eprintln!("SolidCraft: trying again with the software renderer ({}=cpu)", startup::RENDERER_ENV);
-        match std::process::Command::new(exe).args(std::env::args_os().skip(1)).env(startup::RENDERER_ENV, "cpu").status() {
+        let renderer = startup::renderer_env();
+        eprintln!("SolidCraft: trying again with the software renderer ({renderer}=cpu)");
+        match std::process::Command::new(exe).args(std::env::args_os().skip(1)).env(&renderer, "cpu").status() {
             Ok(status) if status.success() => return Ok(()),
             // The second try showed its own message.
             Ok(_) => return Err(error),
@@ -726,7 +749,7 @@ fn no_window(error: eframe::Error, tried_cpu: bool, settings: Option<&std::path:
     }
     let _ = rfd::MessageDialog::new()
         .set_level(rfd::MessageLevel::Error)
-        .set_title("SolidCraft could not start")
+        .set_title(format!("{} could not start", solidcraft_engine::geom::brand::get().name))
         .set_description(startup::no_window_message(&error.to_string(), settings))
         .set_buttons(rfd::MessageButtons::Ok)
         .show();
@@ -779,7 +802,7 @@ mod icon_tests {
     fn macos_preserves_the_bundle_icon_instead_of_setting_a_runtime_bitmap() {
         let viewport = super::app_viewport().expect("viewport");
         assert_eq!(viewport.icon.as_deref(), Some(&eframe::egui::IconData::default()));
-        assert_eq!(viewport.app_id.as_deref(), Some(super::APP_ID));
+        assert_eq!(viewport.app_id.as_deref(), Some(solidcraft_engine::io::APP_ID));
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -789,7 +812,7 @@ mod icon_tests {
         let icon = viewport.icon.expect("running window must have an icon");
         assert_eq!((icon.width, icon.height), (64, 64));
         assert_eq!(icon.rgba, super::app_icon::rgba(64).expect("original mark"));
-        assert_eq!(viewport.app_id.as_deref(), Some(super::APP_ID));
+        assert_eq!(viewport.app_id.as_deref(), Some(solidcraft_engine::io::APP_ID));
     }
 }
 

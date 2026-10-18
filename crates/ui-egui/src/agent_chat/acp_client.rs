@@ -134,7 +134,11 @@ impl AcpBackend {
             Incoming::ModeChanged(m) => out.push(Event::Modes { current: m, available: Vec::new() }),
             Incoming::ModelChanged(m) => out.push(Event::Models { current: m, available: Vec::new() }),
             Incoming::Unsupported { rpc, method } => {
-                self.proc.send(&acp::reply_error(rpc, acp::METHOD_NOT_FOUND, &format!("SolidCraft does not serve `{method}`")));
+                self.proc.send(&acp::reply_error(
+                    rpc,
+                    acp::METHOD_NOT_FOUND,
+                    &format!("{} does not serve `{method}`", solidcraft_engine::geom::brand::get().name),
+                ));
             }
             Incoming::Ignored => {}
         }

@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 
 /// The Linux app id (Flatpak, desktop entry, AppStream, Wayland `app_id`).
-pub const APP_ID: &str = "ai.storyteller.solidcraft";
+pub const APP_ID: &str = solidcraft_geom::brand::SOLIDCRAFT.app_id;
 /// The app id of releases before 0.8 (compatibility shim, docs/compatibility.md).
 pub const LEGACY_APP_ID: &str = "ai.storyteller.solvecraft";
 

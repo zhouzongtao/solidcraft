@@ -72,12 +72,14 @@ impl Policy {
         }
     }
 
-    /// The policy `SOLIDCRAFT_GPU` names; [`Policy::Auto`] when it is unset, and an error when
-    /// it names none.
+    /// The policy `SOLIDCRAFT_GPU` (the brand's prefix) names; [`Policy::Auto`] when it is
+    /// unset, and an error when it names none.
     pub fn from_env() -> Result<Policy, String> {
-        match std::env::var("SOLIDCRAFT_GPU") {
-            Ok(v) => Policy::parse(&v).ok_or_else(|| format!("SOLIDCRAFT_GPU must be auto, hardware, software or cpu, not `{v}`")),
-            Err(_) => Ok(Policy::Auto),
+        match solidcraft_geom::env::var("GPU") {
+            Some(v) => {
+                Policy::parse(&v).ok_or_else(|| format!("{} must be auto, hardware, software or cpu, not `{v}`", solidcraft_geom::env::name("GPU")))
+            }
+            None => Ok(Policy::Auto),
         }
     }
 

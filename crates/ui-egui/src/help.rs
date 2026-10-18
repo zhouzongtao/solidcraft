@@ -28,11 +28,23 @@ pub struct HelpState {
     pub gpu: Option<String>,
 }
 
+/// The program and its build: `SolidCraft 0.15.0 (commit, built date)`, or a product's name and
+/// version followed by the SolidCraft it is built on.
+pub fn build_line() -> String {
+    let brand = solidcraft_engine::geom::brand::get();
+    if brand.is_solidcraft() {
+        format!("SolidCraft {VERSION} ({COMMIT}, built {BUILD_DATE})")
+    } else {
+        format!("{} {} (SolidCraft {VERSION}, {COMMIT}, built {BUILD_DATE})", brand.name, brand.version)
+    }
+}
+
 /// One line per fact, for bug reports.
 pub fn diagnostics(app: &SolveApp) -> String {
     let renderer = if app.viewport.gpu.is_some() { "GPU" } else { "CPU" };
     format!(
-        "SolidCraft {VERSION} ({COMMIT}, built {BUILD_DATE})\nOS: {} {}\nRenderer: {renderer}{}\nWindow: {}\nDesign: {} ({} features, {} bodies)",
+        "{}\nOS: {} {}\nRenderer: {renderer}{}\nWindow: {}\nDesign: {} ({} features, {} bodies)",
+        build_line(),
         std::env::consts::OS,
         std::env::consts::ARCH,
         app.help.gpu.as_ref().map(|g| format!(", {g}")).unwrap_or_default(),
@@ -47,7 +59,11 @@ pub fn diagnostics(app: &SolveApp) -> String {
 pub fn run(app: &mut SolveApp, ctx: &egui::Context, item: &str) {
     app.help.menu = false;
     match item {
-        "docs" => ctx.open_url(egui::OpenUrl::new_tab(DOCS_URL)),
+        "docs" => {
+            if let Some(url) = solidcraft_engine::geom::brand::get().docs_url {
+                ctx.open_url(egui::OpenUrl::new_tab(url));
+            }
+        }
         "about" => app.help.about = true,
         "shortcuts" => {
             app.keymap.open = true;
@@ -77,6 +93,9 @@ pub fn show(app: &mut SolveApp, ctx: &egui::Context, anchor: egui::Pos2) {
                         ("report", "Report an Issue…"),
                         ("crashes", "Crash Reports…"),
                     ] {
+                        if id == "docs" && solidcraft_engine::geom::brand::get().docs_url.is_none() {
+                            continue;
+                        }
                         if crate::context_menu::list_row(ui, &crate::context_menu::Item::action(id, label, "")).is_some() {
                             pick = Some(id);
                         }
@@ -108,9 +127,18 @@ fn about(app: &mut SolveApp, ctx: &egui::Context) {
         .open(&mut open)
         .default_size(vec2(440.0, 560.0))
         .show(ctx, |ui| {
-            ui.label(RichText::new("SolidCraft").size(22.0).strong());
-            ui.label(format!("Version {VERSION} · commit {COMMIT} · built {BUILD_DATE}"));
-            ui.label(RichText::new(crate::i18n::tr_label("Open-source parametric 3D CAD in Rust. Licensed MIT OR Apache-2.0.")).color(t.text_dim));
+            let brand = solidcraft_engine::geom::brand::get();
+            ui.label(RichText::new(brand.name).size(22.0).strong());
+            if brand.is_solidcraft() {
+                ui.label(format!("Version {VERSION} · commit {COMMIT} · built {BUILD_DATE}"));
+                ui.label(
+                    RichText::new(crate::i18n::tr_label("Open-source parametric 3D CAD in Rust. Licensed MIT OR Apache-2.0.")).color(t.text_dim),
+                );
+            } else {
+                ui.label(format!("Version {}", brand.version));
+                let based_on = [("base", "SolidCraft"), ("version", VERSION), ("commit", COMMIT), ("built", BUILD_DATE)];
+                ui.add(egui::Label::new(RichText::new(crate::i18n::format("about.based_on", &based_on)).color(t.text_dim)).wrap());
+            }
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 if ui.button(crate::i18n::tr_label("Copy diagnostic information")).clicked() {
@@ -173,5 +201,10 @@ mod tests {
         let app = SolveApp::new(solidcraft_engine::Session::default(), Default::default());
         let d = diagnostics(&app);
         assert!(d.contains(VERSION) && d.contains(std::env::consts::OS) && d.contains("Renderer: CPU"), "{d}");
+        // SolidCraft's brand names its own pages.
+        let sc = solidcraft_engine::geom::brand::SOLIDCRAFT;
+        assert_eq!((sc.docs_url, sc.issues_url), (Some(DOCS_URL), Some(crate::issue_report::ISSUE_URL)));
+        assert_eq!(sc.releases_url, Some(crate::update::RELEASES_PAGE));
+        assert!(build_line().starts_with(&format!("SolidCraft {VERSION} (")));
     }
 }

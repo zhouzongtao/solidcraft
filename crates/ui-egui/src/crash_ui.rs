@@ -50,7 +50,8 @@ pub fn announce(app: &mut SolveApp, fresh: &[Summary]) {
     }
     app.crashes.open = true;
     app.crashes.refresh();
-    app.set_status("SolidCraft closed unexpectedly or hit an internal error last time. A crash report was saved (Help > Crash Reports…).", true);
+    let name = solidcraft_engine::geom::brand::get().name;
+    app.set_status(format!("{name} closed unexpectedly or hit an internal error last time. A crash report was saved (Help > Crash Reports…)."), true);
 }
 
 pub fn show(app: &mut SolveApp, ctx: &egui::Context) {

@@ -87,7 +87,8 @@ fn cache_path(key: &str) -> Option<std::path::PathBuf> {
         .or_else(|| std::env::var_os("XDG_CACHE_HOME"))
         .map(std::path::PathBuf::from)
         .unwrap_or_else(std::env::temp_dir);
-    Some(root.join("SolidCraft").join("thumbnails").join(format!("{:016x}.png", h.finish())))
+    let folder = solidcraft_engine::geom::brand::get().folder_path(!(cfg!(windows) || cfg!(target_os = "macos")));
+    Some(root.join(folder).join("thumbnails").join(format!("{:016x}.png", h.finish())))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -356,7 +357,7 @@ pub fn show(app: &mut SolveApp, ui: &mut egui::Ui) {
     egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.panel).inner_margin(egui::Margin::symmetric(36, 24))).show(ui, |ui| {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("SolidCraft").size(26.0).strong().color(t.text));
+                ui.label(RichText::new(solidcraft_engine::geom::brand::get().name).size(26.0).strong().color(t.text));
                 ui.add_space(12.0);
                 ui.label(RichText::new(crate::i18n::tr_label("Start")).size(16.0).color(t.text_dim));
             });
@@ -406,9 +407,14 @@ pub fn show(app: &mut SolveApp, ui: &mut egui::Ui) {
             });
             ui.add_space(24.0);
             ui.horizontal_wrapped(|ui| {
-                ui.hyperlink_to(app.tr("home.documentation"), crate::help::DOCS_URL);
-                ui.hyperlink_to(app.tr("home.report_issue"), "https://github.com/bherbruck/solidcraft/issues/new");
-                ui.hyperlink_to(app.tr("home.whats_new"), "https://github.com/bherbruck/solidcraft/releases/latest");
+                let brand = solidcraft_engine::geom::brand::get();
+                for (id, url) in
+                    [("home.documentation", brand.docs_url), ("home.report_issue", brand.issues_url), ("home.whats_new", brand.releases_url)]
+                {
+                    if let Some(url) = url {
+                        ui.hyperlink_to(app.tr(id), url);
+                    }
+                }
                 if ui.link(app.tr("ui.keyboard_shortcuts")).clicked() {
                     app.keymap.open = true;
                     app.keymap.read_only = true;

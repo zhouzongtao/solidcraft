@@ -11,6 +11,7 @@
 
 mod arcfit;
 pub mod blend;
+pub mod brand;
 pub mod brep;
 pub mod bspline;
 mod bvh;

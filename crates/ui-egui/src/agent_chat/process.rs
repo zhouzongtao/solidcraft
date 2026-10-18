@@ -146,11 +146,7 @@ impl AgentProcess {
         wake: impl Fn() + Send + Sync + 'static,
     ) -> Result<AgentProcess, String> {
         let Some((program, args)) = argv.split_first() else { return Err("no agent command".into()) };
-        let mut cmd = super::discover::command_for(std::path::Path::new(program));
-        cmd.args(args).current_dir(cwd).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
-        for v in env_remove {
-            cmd.env_remove(v);
-        }
+        let mut cmd = command(program, args, cwd, env_remove);
         detach_group(&mut cmd);
         let mut child = cmd.spawn().map_err(|e| format!("{program}: {e}"))?;
         let (Some(mut stdin), Some(stdout), Some(stderr)) = (child.stdin.take(), child.stdout.take(), child.stderr.take()) else {
@@ -235,6 +231,28 @@ impl AgentProcess {
 impl Drop for AgentProcess {
     fn drop(&mut self) {
         self.shutdown(false);
+    }
+}
+
+/// The agent's command, without `env_remove` and the program's own control token (a product
+/// built on SolidCraft names it under its own prefix), which would outrank the chat endpoint's.
+fn command(program: &str, args: &[String], cwd: &std::path::Path, env_remove: &[&str]) -> Command {
+    let mut cmd = super::discover::command_for(std::path::Path::new(program));
+    cmd.args(args).current_dir(cwd).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    for v in env_remove {
+        cmd.env_remove(v);
+    }
+    cmd.env_remove(solidcraft_engine::geom::env::name("CONTROL_TOKEN"));
+    cmd
+}
+
+#[cfg(test)]
+mod env_tests {
+    #[test]
+    fn the_programs_control_token_never_reaches_the_agent() {
+        let cmd = super::command("agent", &[], std::path::Path::new("."), &[]);
+        let removed: Vec<_> = cmd.get_envs().filter(|(_, v)| v.is_none()).map(|(k, _)| k.to_owned()).collect();
+        assert!(removed.contains(&std::ffi::OsString::from(solidcraft_engine::geom::env::name("CONTROL_TOKEN"))), "{removed:?}");
     }
 }
 
